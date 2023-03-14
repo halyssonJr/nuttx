@@ -65,15 +65,16 @@ static int wiegand_irq_attach(struct wiegand_config_s *dev,xcpt_t isr,
 static void wiegand_irq_enable(struct wiegand_config_s *dev, bool enable);
 static bool wiegand_read_data(const struct wiegand_config_s *dev, int index);
 
-// static struct esp32_wiegand_config_s g_wiegand_config=
-// {
-//     .config = 
-//     {
-//         .gpint_attach = wiegand_irq_read,
-//         .gpint_enable = wiegand_irq_attach,
-//         .gpint_read   = wiegand_irq_enable,  
-//     },
-// };
+static struct esp32_wiegand_config_s g_wiegand_config =
+{
+    .config = 
+    {
+      .read_pin = wiegand_read_data,
+      .irq_attach = wiegand_irq_attach,
+      .irq_enable = wiegand_irq_enable,
+    },
+};
+
 static bool wiegand_read_data(const struct wiegand_config_s *dev, int index)
 {
   return esp32_gpioread(gpio_data[index]);
@@ -92,13 +93,13 @@ static void wiegand_irq_enable(struct wiegand_config_s *dev, bool enable)
   {  
     if(enable)
     {
-      syslog(LOG_DEBUG, "DEBUG: enable interrupt falling edge");
+      //syslog(LOG_DEBUG, "DEBUG: enable interrupt falling edge");
       esp32_gpioirqenable(irq[1], FALLING);
       esp32_gpioirqenable(irq[1], FALLING);
     }
     else
     {
-      syslog(LOG_DEBUG, "DEBUG: disable ");
+     // syslog(LOG_DEBUG, "DEBUG: disable ");
       esp32_gpioirqdisable(irq[0]);
       esp32_gpioirqdisable(irq[1]);
     }
@@ -125,14 +126,14 @@ static int wiegand_irq_attach(struct wiegand_config_s *dev, xcpt_t isr,
     ret = irq_attach(irq[0],isr,arg);
     if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: irq_attach() gpio DATA 1 failed: %d\n", ret);
+      //syslog(LOG_ERR, "ERROR: irq_attach() gpio DATA 1 failed: %d\n", ret);
       return ret;
     }
     
     ret = irq_attach(irq[1],isr,arg);
     if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: irq_attach() gpio DATA 1 failed: %d\n", ret);
+      //syslog(LOG_ERR, "ERROR: irq_attach() gpio DATA 1 failed: %d\n", ret);
       return ret;
     }
   }
@@ -147,4 +148,17 @@ static int wiegand_irq_attach(struct wiegand_config_s *dev, xcpt_t isr,
   priv->arg = arg;
 
   return OK;
+}
+
+int wiegand_initialize(int devno)
+{
+  int ret;
+  char devpath[12];
+  
+  esp32_configgpio(gpio_data[0], INPUT_FUNCTION_3 | PULLUP);
+  
+  esp32_configgpio(gpio_data[1], INPUT_FUNCTION_3 | PULLUP);
+
+  snprintf(devpath,12,"/dev/dist%d",devno);
+  return 1;
 }
