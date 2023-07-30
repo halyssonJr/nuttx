@@ -147,6 +147,10 @@
 #  include "esp32_max6675.h"
 #endif
 
+#ifdef CONFIG_DRIVERS_WIEGAND
+#   include "esp32_wiegand.h"
+#endif
+
 #include "esp32-devkitc.h"
 
 /****************************************************************************
@@ -625,6 +629,15 @@ int esp32_bringup(void)
              ESP32_SPI2, ret);
     }
 #  endif
+#endif
+
+#ifdef CONFIG_DRIVERS_WIEGAND
+  ret = wiegand_initialize(0);
+  if (ret < 0)
+  {
+    syslog(LOG_ERR,
+          "ERROR: Failed to wiegand_initialize failed : %d\n",ret);
+  }
 #endif
 
   /* If we got here then perhaps not all initialization was successful, but

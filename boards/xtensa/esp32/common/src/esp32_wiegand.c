@@ -30,22 +30,14 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include <nuttx/arch.h>
-#include <nuttx/board.h>
-#include <nuttx/irq.h>
-#include <arch/irq.h>
-
-#include "esp32_gpio.h"
-
-#include "esp32-devkitc.h"
-
 #include <nuttx/wiegand/wiegand.h>
 
-
+#include "esp32_gpio.h"
+#include "hardware/esp32_gpio_sigmap.h"
 
 #define GPIO_DATA_0 22
 #define GPIO_DATA_1 23
-
+#define GPIO_DATA_NUM 2
 
 struct esp32_wiegand_config_s
 {
@@ -54,7 +46,7 @@ struct esp32_wiegand_config_s
   xcpt_t isr;
 };
 
-int gpio_data [2] =
+int gpio_data [GPIO_DATA_NUM] =
 {
   GPIO_DATA_0,
   GPIO_DATA_1
@@ -65,11 +57,11 @@ static int wiegand_irq_attach(struct wiegand_config_s *dev,xcpt_t isr,
 static void wiegand_irq_enable(struct wiegand_config_s *dev, bool enable);
 static bool wiegand_read_data(const struct wiegand_config_s *dev, int index);
 
-static struct esp32_wiegand_config_s g_wiegand_config =
+static struct esp32_wiegand_config_s wiegand_config =
 {
     .config = 
     {
-      .read_pin = wiegand_read_data,
+      .get_data = wiegand_read_data,
       .irq_attach = wiegand_irq_attach,
       .irq_enable = wiegand_irq_enable,
     },
@@ -115,6 +107,7 @@ static int wiegand_irq_attach(struct wiegand_config_s *dev, xcpt_t isr,
   int ret;
   int irq[2];
   
+  
   irq[0] = ESP32_PIN2IRQ(gpio_data[0]);
   irq[1] = ESP32_PIN2IRQ(gpio_data[1]);
   
@@ -154,11 +147,13 @@ int wiegand_initialize(int devno)
 {
   int ret;
   char devpath[12];
-  
+  int i;
+
   esp32_configgpio(gpio_data[0], INPUT_FUNCTION_3 | PULLUP);
-  
   esp32_configgpio(gpio_data[1], INPUT_FUNCTION_3 | PULLUP);
 
-  snprintf(devpath,12,"/dev/dist%d",devno);
+  snprintf(devpath,12,"/dev/wiega%d",devno);
+  wiegand_register(devpath,&wiegand_config.config);
+
   return 1;
 }
