@@ -32,4 +32,5 @@ struct wiegand_config_s
     
 };
 
+int wiegand_register(FAR const char  *devpath, FAR struct wiegand_config_s *config);
 #endif /* __INCLUDE_NUTTX_WIEGAND_WIEGAND_H */

@@ -50,17 +50,33 @@ struct wiegand_dev_s
 };
 
 static int wiegand_open(FAR struct file *filep);
+static int wiegand_close(FAR struct file *filep);
 static ssize_t wiegand_read(FAR struct file *filep, FAR char *buffer,
                             size_t buflen);
 static const struct file_operations g_wiegandops =
 {
     wiegand_open,    /* open */
-    NULL,           /* close */
-    wiegand_read,   /* read */
+    wiegand_close,   /* close */
+    wiegand_read,    /* read */
     NULL,           /* write */   
 };
 
 static int wiegand_open(FAR struct file *filep)
+{
+    FAR struct inode *inode = filep->f_inode;
+    FAR struct wiegand_dev_s *priv = inode->i_private;
+    int ret;
+
+    ret = nxmutex_lock(&priv->devlock);
+    if(ret <0)
+    {
+        return ret;
+    }
+    nxmutex_unlock(&priv->devlock);
+    return OK;
+}
+
+static int wiegand_close(FAR struct file *filep)
 {
     FAR struct inode *inode = filep->f_inode;
     FAR struct wiegand_dev_s *priv = inode->i_private;
@@ -94,8 +110,8 @@ static void wiegand_start_read_signal(FAR struct wiegand_dev_s *priv)
     
     do
     {
-        data0 = priv->config->read_pin(priv->config,0);
-        data1 = priv->config->read_pin(priv->config,1);
+        data0 = priv->config->get_data(priv->config,0);
+        data1 = priv->config->get_data(priv->config,1);
         
         if(data0 != data1)
         {
