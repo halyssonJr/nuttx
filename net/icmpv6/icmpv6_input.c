@@ -33,6 +33,7 @@
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/netstats.h>
 #include <nuttx/net/icmpv6.h>
+#include <nuttx/net/dns.h>
 
 #include "devif/devif.h"
 #include "neighbor/neighbor.h"
@@ -58,9 +59,31 @@
 #define MLDREPORT_V2     ((FAR struct mld_mcast_listen_report_v2_s *)icmpv6)
 #define MLDDONE          ((FAR struct mld_mcast_listen_done_s *)icmpv6)
 
+#ifdef CONFIG_NET_ICMPv6_SOCKET
+
+/****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+struct icmpv6_deliver_s
+{
+  FAR struct net_driver_s *dev; /* Current network device */
+  unsigned int iplen;           /* The size of the IPv6 header */
+  bool delivered;               /* Whether the message is delivered */
+};
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
+
+static bool icmpv6_filter(FAR const uint32_t *data, uint8_t type)
+{
+  /* We require only the four bytes of the ICMPv6 header. */
+
+  DEBUGASSERT(data != NULL);
+
+  return (data[type >> 5] & (1u << (type & 31))) != 0;
+}
 
 /****************************************************************************
  * Name: icmpv6_datahandler
@@ -81,7 +104,6 @@
  *
  ****************************************************************************/
 
-#ifdef CONFIG_NET_ICMPv6_SOCKET
 static uint16_t icmpv6_datahandler(FAR struct net_driver_s *dev,
                                    FAR struct icmpv6_conn_s *conn,
                                    unsigned int iplen)
@@ -89,12 +111,18 @@ static uint16_t icmpv6_datahandler(FAR struct net_driver_s *dev,
   FAR struct ipv6_hdr_s *ipv6;
   struct sockaddr_in6 inaddr;
   FAR struct iob_s *iob;
+  unsigned int offset;
   uint16_t buflen;
   int ret;
 
+  iob = iob_tryalloc(false);
+  if (iob == NULL)
+    {
+      return -ENOMEM;
+    }
+
   /* Put the IPv6 address at the beginning of the read-ahead buffer */
 
-  iob                = dev->d_iob;
   ipv6               = IPv6BUF;
   inaddr.sin6_family = AF_INET6;
   inaddr.sin6_port   = 0;
@@ -105,14 +133,23 @@ static uint16_t icmpv6_datahandler(FAR struct net_driver_s *dev,
    */
 
   memcpy(iob->io_data, &inaddr, sizeof(struct sockaddr_in6));
+  offset = sizeof(struct sockaddr_in6);
 
-  /* Copy the new ICMPv6 reply into the I/O buffer chain (without waiting) */
+  iob->io_data[offset++] = ipv6->ttl;
+
+  iob_reserve(iob, offset);
+
+  /* Copy the ICMPv6 message into the I/O buffer chain (without waiting) */
+
+  ret = iob_clone_partial(dev->d_iob, dev->d_iob->io_pktlen,
+                          iplen, iob, 0, true, false);
+  if (ret < 0)
+    {
+      iob_free_chain(iob);
+      return ret;
+    }
 
   buflen = ICMPv6SIZE;
-
-  /* Trim l3 header */
-
-  iob = iob_trimhead(iob, iplen);
 
   /* Add the new I/O buffer chain to the tail of the read-ahead queue (again
    * without waiting).
@@ -129,12 +166,81 @@ static uint16_t icmpv6_datahandler(FAR struct net_driver_s *dev,
       ninfo("Buffered %d bytes\n", buflen);
     }
 
-  /* Device buffer must be enqueue or freed, clear the handle */
-
-  netdev_iob_clear(dev);
   return buflen;
 }
-#endif
+
+/****************************************************************************
+ * Name: icmpv6_delivery_callback
+ *
+ * Description:
+ *   Copy the icmpv6 package to the application according to the filter
+ *   conditions, but ICMPv6_ECHO_REPLY is a special message type, if there
+ *   is an application waiting, it will also copy.
+ *
+ * Input Parameters:
+ *   conn - A pointer to the ICMPv6 connection structure.
+ *   arg - The context information
+ *
+ ****************************************************************************/
+
+static int icmpv6_delivery_callback(FAR struct icmpv6_conn_s *conn,
+                                    FAR void *arg)
+{
+  FAR struct icmpv6_deliver_s *info   = arg;
+  FAR struct net_driver_s     *dev    = info->dev;
+  FAR struct icmpv6_hdr_s     *icmpv6 = IPBUF(info->iplen);
+
+  if (icmpv6_filter(conn->filter.icmp6_filt, icmpv6->type) &&
+      (icmpv6->type != ICMPv6_ECHO_REPLY || conn->id != ICMPv6REPLY->id ||
+       conn->dev != dev))
+    {
+      return 0;
+    }
+
+  info->delivered = true;
+  if (devif_conn_event(dev, ICMPv6_NEWDATA, conn->sconn.list) !=
+      ICMPv6_NEWDATA)
+    {
+      dev->d_len = dev->d_iob->io_pktlen;
+    }
+  else
+    {
+      icmpv6_datahandler(dev, conn, info->iplen);
+    }
+
+  return 0;
+}
+
+/****************************************************************************
+ * Name: icmpv6_deliver
+ *
+ * Description:
+ *   Copy the icmpv6 package to the application according to the filter
+ *   conditions, but ICMPv6_ECHO_REPLY is a special message type, if there
+ *   is an application waiting, it will also copy.
+ *
+ * Input Parameters:
+ *   dev - Reference to a device driver structure.
+ *   iplen - The size of the IPv6 header.  This may be larger than
+ *           IPv6_HDRLEN the IPv6 header if IPv6 extension headers are
+ *           present.
+ *
+ ****************************************************************************/
+
+static bool icmpv6_deliver(FAR struct net_driver_s *dev, unsigned int iplen)
+{
+  struct icmpv6_deliver_s info;
+
+  info.dev       = dev;
+  info.iplen     = iplen;
+  info.delivered = false;
+
+  icmpv6_foreach(icmpv6_delivery_callback, &info);
+
+  return info.delivered;
+}
+
+#endif /* CONFIG_NET_ICMPv6_SOCKET */
 
 /****************************************************************************
  * Public Functions
@@ -165,6 +271,9 @@ void icmpv6_input(FAR struct net_driver_s *dev, unsigned int iplen)
 {
   FAR struct ipv6_hdr_s *ipv6 = IPv6BUF;
   FAR struct icmpv6_hdr_s *icmpv6 = IPBUF(iplen);
+#ifdef CONFIG_NET_ICMPv6_SOCKET
+  bool delivered = icmpv6_deliver(dev, iplen);
+#endif
 
 #ifdef CONFIG_NET_STATISTICS
   g_netstats.icmpv6.recv++;
@@ -353,9 +462,56 @@ void icmpv6_input(FAR struct net_driver_s *dev, unsigned int iplen)
                   {
                     FAR struct icmpv6_mtu_s *mtuopt =
                                         (FAR struct icmpv6_mtu_s *)opt;
-                    dev->d_pktsize = NTOHL(mtuopt->mtu) + dev->d_llhdrlen;
+                    dev->d_pktsize = NTOHS(mtuopt->mtu[1]) + dev->d_llhdrlen;
                   }
                   break;
+
+#ifdef CONFIG_ICMPv6_AUTOCONF_RDNSS
+                case ICMPv6_OPT_RDNSS:
+                  {
+                    FAR struct icmpv6_rdnss_s *rdnss =
+                                          (FAR struct icmpv6_rdnss_s *)opt;
+                    FAR struct in6_addr *servers;
+                    struct sockaddr_in6 addr;
+                    int nservers;
+                    int ret;
+                    int i;
+
+                    if (rdnss->optlen < 3)
+                      {
+                        nerr("rdnss error length %d\n", rdnss->optlen);
+                        break;
+                      }
+
+                    /* optlen is in units of 8 bytes. The header is 1 unit
+                     * (8 bytes) and each address is another 2 units
+                     * (16 bytes). So the number of addresses is equal to
+                     * (optlen - 1) / 2.
+                     */
+
+                    servers  = (FAR struct in6_addr *)rdnss->servers;
+                    nservers = (rdnss->optlen - 1) / 2;
+
+                    /* Set the IPv6 DNS server address */
+
+                    memset(&addr, 0, sizeof(addr));
+                    addr.sin6_family = AF_INET6;
+
+                    for (i = 0; i < CONFIG_NETDB_DNSSERVER_NAMESERVERS &&
+                         i < nservers; i++)
+                      {
+                        net_ipv6addr_copy(&addr.sin6_addr, servers + i);
+                        ret = dns_add_nameserver(
+                                          (FAR const struct sockaddr *)&addr,
+                                          sizeof(struct sockaddr_in6));
+                        if (ret < 0 && ret != -EEXIST)
+                          {
+                            nerr("dns add nameserver failed %d", ret);
+                          }
+                      }
+                  }
+                  break;
+#endif
 
                 default:
                   break;
@@ -395,59 +551,32 @@ void icmpv6_input(FAR struct net_driver_s *dev, unsigned int iplen)
       }
       break;
 
-#ifdef CONFIG_NET_ICMPv6_SOCKET
-    /* If an ICMPv6 echo reply is received then there should also be
-     * a thread waiting to received the echo response.
-     */
-
-    case ICMPv6_ECHO_REPLY:
+#if (CONFIG_NET_ICMPv6_PMTU_ENTRIES > 0)
+    case ICMPv6_PACKET_TOO_BIG:
       {
-        FAR struct icmpv6_echo_reply_s *reply;
-        FAR struct icmpv6_conn_s *conn;
-        uint16_t flags = ICMPv6_NEWDATA;
+        FAR struct icmpv6_pmtu_entry *entry;
+        FAR struct ipv6_hdr_s *inner;
+        int mtu;
 
-        /* Nothing consumed the ICMP reply.  That might be because this is
-         * an old, invalid reply or simply because the ping application
-         * has not yet put its poll or recv in place.
-         */
-
-        /* Is there any connection that might expect this reply? */
-
-        reply = ICMPv6REPLY;
-        conn = icmpv6_findconn(dev, reply->id);
-        if (conn == NULL)
+        mtu = (ntohs(icmpv6->data[0]) << 16) | (ntohs(icmpv6->data[1]));
+        if (mtu <= 0)
           {
-            /* No.. drop the packet */
-
-            goto icmpv6_drop_packet;
+            goto icmpv6_type_error;
           }
 
-        /* Dispatch the ECHO reply to the waiting thread */
-
-        flags = devif_conn_event(dev, flags, conn->sconn.list);
-
-        /* Was the ECHO reply consumed by any waiting thread? */
-
-        if ((flags & ICMPv6_NEWDATA) != 0)
+        inner = (FAR struct ipv6_hdr_s *)(icmpv6 + 1);
+        entry = icmpv6_find_pmtu_entry(inner->destipaddr);
+        if (entry == NULL)
           {
-            uint16_t nbuffered;
-
-            /* Yes.. Add the ICMP echo reply to the IPPROTO_ICMP socket read
-             * ahead buffer.
-             */
-
-            nbuffered = icmpv6_datahandler(dev, conn, iplen);
-            if (nbuffered == 0)
-              {
-                /* Could not buffer the data.. drop the packet */
-
-                goto icmpv6_drop_packet;
-              }
+            icmpv6_add_pmtu_entry(inner->destipaddr, mtu);
+          }
+        else
+          {
+            entry->pmtu = mtu;
           }
 
-          goto icmpv6_send_nothing;
+        goto icmpv6_send_nothing;
       }
-      break;
 #endif
 
 #ifdef CONFIG_NET_MLD
@@ -508,6 +637,13 @@ void icmpv6_input(FAR struct net_driver_s *dev, unsigned int iplen)
 
     default:
       {
+#ifdef CONFIG_NET_ICMPv6_SOCKET
+        if (delivered)
+          {
+            goto icmpv6_send_nothing;
+          }
+#endif
+
         nwarn("WARNING: Unknown ICMPv6 type: %d\n", icmpv6->type);
         goto icmpv6_type_error;
       }

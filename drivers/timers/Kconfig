@@ -13,6 +13,10 @@ config ARCH_HAVE_PWM_OVERWRITE
 	bool
 	default n
 
+config ARCH_HAVE_PWM_DEADTIME
+	bool
+	default n
+
 config ARCH_HAVE_PWM_MULTICHAN
 	bool
 	default n
@@ -45,6 +49,20 @@ config PWM_OVERWRITE
 		1 without the need to wait for an end of cycle. The overwrite is
 		controlled from an application level the same way duty cycle or
 		frequency is modified.
+
+config PWM_DEADTIME
+	bool "PWM Deadtime Support"
+	default n
+	depends on ARCH_HAVE_PWM_DEADTIME
+	---help---
+		Some hardware will support deadtime generators that automatically
+		insert output activation delay for complementary PWM outputs. This
+		is usefull for H-bridge motor control for example. The deadtime
+		values are set from application level via the same IOCTL that sets
+		up duty cycle and frequency.
+
+		For detailed description about deadtime functionality please refer
+		to architecture manuals and datasheets.
 
 config PWM_MULTICHAN
 	bool "PWM Multiple Output Channel Support"
@@ -296,6 +314,10 @@ config PCF85263_I2C_FREQUENCY
 
 endif # RTC_PCF85263
 
+config RTC_PL031
+	bool "PL031 RTC Support"
+	default n
+
 config RTC_MCP794XX
 	bool "MCP794XX RTC Driver"
 	default n
@@ -373,6 +395,13 @@ config WATCHDOG_MAGIC_V
 	default y
 	---help---
 		The watchdog can be stopped by writing 'V' to the watchdog's device node
+
+config WATCHDOG_PANIC_NOTIFIER
+	bool "Enable watchdog panic notifier"
+	default n
+	---help---
+		When system PANIC, wdog_notifier() will be callled to disable the watchdog,
+		this is an useful option for debug if you want to keep crash scene.
 
 menuconfig WATCHDOG_AUTOMONITOR
 	bool "Auto-monitor"
@@ -462,4 +491,4 @@ config CS2100CP_REGDEBUG
 	depends on DEBUG_FEATURES
 
 endif # TIMERS_CS2100CP
-endmenu  # Timer Driver Support
+endmenu # Timer Driver Support

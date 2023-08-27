@@ -36,10 +36,12 @@
 #include <assert.h>
 #include <debug.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/drivers/drivers.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/mutex.h>
+
+#include "driver.h"
 
 #if !defined(CONFIG_DISABLE_MOUNTPOINT) && \
     !defined(CONFIG_DISABLE_PSEUDOFS_OPERATIONS)
@@ -195,14 +197,14 @@ int block_proxy(FAR struct file *filep, FAR const char *blkdev, int oflags)
 
   /* Free the allocated character driver name. */
 
-  kmm_free(chardev);
+  lib_free(chardev);
   return OK;
 
 errout_with_bchdev:
   nx_unlink(chardev);
 
 errout_with_chardev:
-  kmm_free(chardev);
+  lib_free(chardev);
   return ret;
 }
 

@@ -112,7 +112,7 @@ static int     mtdconfig_poll(FAR struct file *filep, FAR struct pollfd *fds,
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations mtdconfig_fops =
+static const struct file_operations g_mtdconfig_fops =
 {
   mtdconfig_open,  /* open */
   mtdconfig_close, /* close */
@@ -1423,14 +1423,17 @@ static int mtdconfig_getconfig(FAR struct mtdconfig_struct_s *dev,
 
       /* Perform the read */
 
-      ret = mtdconfig_readbytes(dev, offset + sizeof(hdr), pdata->configdata,
-                                bytes_to_read);
-      if (ret != OK)
+      if (pdata->configdata && bytes_to_read)
         {
-          /* Error reading the data */
+          ret = mtdconfig_readbytes(dev, offset + sizeof(hdr),
+                                    pdata->configdata, bytes_to_read);
+          if (ret != OK)
+            {
+              /* Error reading the data */
 
-          ret = -EIO;
-          goto errout;
+              ret = -EIO;
+              goto errout;
+            }
         }
 
       /* Set return data length to match the config item length */
@@ -1776,7 +1779,7 @@ int mtdconfig_register(FAR struct mtd_dev_s *mtd)
         }
 
       nxmutex_init(&dev->lock);
-      register_driver("/dev/config", &mtdconfig_fops, 0666, dev);
+      register_driver("/dev/config", &g_mtdconfig_fops, 0666, dev);
     }
 
 errout:

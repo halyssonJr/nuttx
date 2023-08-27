@@ -245,8 +245,8 @@ struct lpc43_dev_s
 static uint32_t lpc43_getreg(uint32_t addr);
 static void lpc43_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc43_getreg(addr)      getreg32(addr)
-# define lpc43_putreg(val,addr)  putreg32(val,addr)
+#  define lpc43_getreg(addr)     getreg32(addr)
+#  define lpc43_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Low-level helpers ********************************************************/
@@ -1201,7 +1201,11 @@ static int lpc43_lock(struct sdio_dev_s *dev, bool lock)
    * bus is part of board support package.
    */
 
-  lpc43_muxbus_sdio_lock(lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * lpc43_muxbus_sdio_lock(lock);
+   */
+
   return OK;
 }
 #endif

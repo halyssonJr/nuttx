@@ -74,9 +74,9 @@
 
 #if defined(CONFIG_SCHED_HPWORK) && \
     (CONFIG_IEEE80211_BROADCOM_SCHED_PRIORITY >= CONFIG_SCHED_HPWORKPRIORITY)
-# define BCMFWORK HPWORK
+#  define BCMFWORK HPWORK
 #else
-# define BCMFWORK LPWORK
+#  define BCMFWORK LPWORK
 #endif
 
 /* CONFIG_IEEE80211_BROADCOM_NINTERFACES determines the number of physical
@@ -84,13 +84,13 @@
  */
 
 #ifndef CONFIG_IEEE80211_BROADCOM_NINTERFACES
-# define CONFIG_IEEE80211_BROADCOM_NINTERFACES 1
+#  define CONFIG_IEEE80211_BROADCOM_NINTERFACES 1
 #endif
 
 #ifdef CONFIG_IEEE80211_BROADCOM_LOWPOWER
-# define LP_IFDOWN_TIMEOUT CONFIG_IEEE80211_BROADCOM_LP_IFDOWN_TIMEOUT
-# define LP_DTIM_TIMEOUT   CONFIG_IEEE80211_BROADCOM_LP_DTIM_TIMEOUT
-# define LP_DTIM_INTERVAL  CONFIG_IEEE80211_BROADCOM_LP_DTIM_INTERVAL
+#  define LP_IFDOWN_TIMEOUT CONFIG_IEEE80211_BROADCOM_LP_IFDOWN_TIMEOUT
+#  define LP_DTIM_TIMEOUT   CONFIG_IEEE80211_BROADCOM_LP_DTIM_TIMEOUT
+#  define LP_DTIM_INTERVAL  CONFIG_IEEE80211_BROADCOM_LP_DTIM_INTERVAL
 #endif
 
 /* This is a helper pointer for accessing the contents of Ethernet header */
@@ -155,7 +155,7 @@ int bcmf_netdev_alloc_tx_frame(FAR struct bcmf_dev_s *priv)
                                                MAX_NETDEV_PKTSIZE, false);
   if (!priv->cur_tx_frame)
     {
-      wlerr("ERROR: Cannot allocate TX frame\n");
+      wlinfo("INFO: Cannot allocate TX frame\n");
       return -ENOMEM;
     }
 

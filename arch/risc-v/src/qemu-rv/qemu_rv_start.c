@@ -26,6 +26,7 @@
 
 #include <nuttx/init.h>
 #include <nuttx/arch.h>
+#include <nuttx/serial/uart_16550.h>
 #include <arch/board/board.h>
 
 #include "riscv_internal.h"
@@ -33,6 +34,10 @@
 
 #ifdef CONFIG_BUILD_KERNEL
 #  include "qemu_rv_mm_init.h"
+#endif
+
+#ifdef CONFIG_DEVICE_TREE
+#  include <nuttx/fdt.h>
 #endif
 
 /****************************************************************************
@@ -96,9 +101,9 @@ uintptr_t g_idle_topstack = QEMU_RV_IDLESTACK_TOP;
  ****************************************************************************/
 
 #ifdef CONFIG_BUILD_KERNEL
-void qemu_rv_start_s(int mhartid)
+void qemu_rv_start_s(int mhartid, const char *dtb)
 #else
-void qemu_rv_start(int mhartid)
+void qemu_rv_start(int mhartid, const char *dtb)
 #endif
 {
   /* Configure FPU */
@@ -114,10 +119,14 @@ void qemu_rv_start(int mhartid)
   qemu_rv_clear_bss();
 #endif
 
+#ifdef CONFIG_DEVICE_TREE
+  fdt_register(dtb);
+#endif
+
   showprogress('A');
 
 #ifdef USE_EARLYSERIALINIT
-  up_earlyserialinit();
+  riscv_earlyserialinit();
 #endif
 
   showprogress('B');
@@ -154,7 +163,7 @@ cpux:
  * Name: qemu_rv_start
  ****************************************************************************/
 
-void qemu_rv_start(int mhartid)
+void qemu_rv_start(int mhartid, const char *dtb)
 {
   /* NOTE: still in M-mode */
 
@@ -208,17 +217,23 @@ void qemu_rv_start(int mhartid)
 
   WRITE_CSR(mepc, (uintptr_t)qemu_rv_start_s);
 
-  /* Set a0 to mhartid explicitly and enter to S-mode */
+  /* Set a0 to mhartid and a1 to dtb explicitly and enter to S-mode */
 
   asm volatile (
       "mv a0, %0 \n"
+      "mv a1, %1 \n"
       "mret \n"
-      :: "r" (mhartid)
+      :: "r" (mhartid), "r" (dtb)
   );
 }
 #endif
 
+void riscv_earlyserialinit(void)
+{
+  u16550_earlyserialinit();
+}
+
 void riscv_serialinit(void)
 {
-  up_serialinit();
+  u16550_serialinit();
 }

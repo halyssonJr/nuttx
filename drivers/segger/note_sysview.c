@@ -86,9 +86,11 @@ static const struct note_driver_ops_s g_note_sysview_ops =
 #ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
   note_sysview_suspend,       /* suspend */
   note_sysview_resume,        /* resume */
-#  ifdef CONFIG_SMP
+#endif
+#ifdef CONFIG_SMP
   NULL,                       /* cpu_start */
   NULL,                       /* cpu_started */
+#  ifdef CONFIG_SCHED_INSTRUMENTATION_SWITCH
   NULL,                       /* cpu_pause */
   NULL,                       /* cpu_paused */
   NULL,                       /* cpu_resume */
@@ -132,15 +134,15 @@ static void note_sysview_send_taskinfo(FAR struct tcb_s *tcb)
 {
   SEGGER_SYSVIEW_TASKINFO info;
 
-  info.TaskID     = tcb->pid;
+  info.TaskID    = tcb->pid;
 #if CONFIG_TASK_NAME_SIZE > 0
-  info.sName      = tcb->name;
+  info.sName     = tcb->name;
 #else
-  info.sName      = "<noname>";
+  info.sName     = "<noname>";
 #endif
-  info.Prio       = tcb->sched_priority;
-  info.StackBase  = (uintptr_t)tcb->stack_base_ptr;
-  info.StackSize  = tcb->adj_stack_size;
+  info.Prio      = tcb->sched_priority;
+  info.StackBase = (uintptr_t)tcb->stack_base_ptr;
+  info.StackSize = tcb->adj_stack_size;
 
   SEGGER_SYSVIEW_SendTaskInfo(&info);
 }
@@ -346,7 +348,7 @@ unsigned int note_sysview_get_interrupt_id(void)
  *
  ****************************************************************************/
 
-unsigned int note_sysview_get_timestamp(void)
+unsigned long note_sysview_get_timestamp(void)
 {
   return up_perf_gettime();
 }
@@ -367,7 +369,8 @@ unsigned int note_sysview_get_timestamp(void)
 
 int note_sysview_initialize(void)
 {
-  uint32_t freq = up_perf_getfreq();
+  unsigned long freq = up_perf_getfreq();
+  int ret;
 
   static const SEGGER_SYSVIEW_OS_API g_sysview_trace_api =
     {
@@ -389,9 +392,9 @@ int note_sysview_initialize(void)
 #endif
 
   SEGGER_SYSVIEW_Start();
-  note_driver_register(&g_note_sysview_driver.driver);
+  ret = note_driver_register(&g_note_sysview_driver.driver);
   syslog(LOG_NOTICE, "SEGGER RTT Control Block Address: %#" PRIxPTR "\n",
                       (uintptr_t)&_SEGGER_RTT +
                       CONFIG_SEGGER_RTT_UNCACHED_OFF);
-  return 0;
+  return ret;
 }

@@ -35,6 +35,7 @@
 #include <nuttx/wqueue.h>
 
 #include <nuttx/net/dns.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/pkt.h>
 #include <nuttx/net/rpmsg.h>
@@ -373,8 +374,8 @@ static int net_rpmsg_drv_sockioctl_handler(FAR struct rpmsg_endpoint *ept,
 
   /* Save pointers into argv */
 
-  sprintf(arg1, "%p", ept);
-  sprintf(arg2, "%p", data);
+  snprintf(arg1, sizeof(arg1), "%p", ept);
+  snprintf(arg2, sizeof(arg2), "%p", data);
 
   argv[0] = arg1;
   argv[1] = arg2;
@@ -565,7 +566,8 @@ static void net_rpmsg_drv_device_created(FAR struct rpmsg_device *rdev,
   if (!strcmp(priv->cpuname, rpmsg_get_cpuname(rdev)))
     {
       priv->ept.priv = dev;
-      sprintf(eptname, NET_RPMSG_EPT_NAME, priv->devname);
+      snprintf(eptname, sizeof(eptname),
+               NET_RPMSG_EPT_NAME, priv->devname);
 
       rpmsg_create_ept(&priv->ept, rdev, eptname,
                        RPMSG_ADDR_ANY, RPMSG_ADDR_ANY,
@@ -658,9 +660,9 @@ static int net_rpmsg_drv_ifup(FAR struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff), (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff), (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",

@@ -65,6 +65,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/gmii.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/phy.h>
 
@@ -282,8 +283,8 @@ static uint32_t sam_getreg(struct sam_gmac_s *priv, uintptr_t addr);
 static void sam_putreg(struct sam_gmac_s *priv,
                        uintptr_t addr, uint32_t val);
 #else
-# define sam_getreg(priv,addr)      getreg32(addr)
-# define sam_putreg(priv,addr,val)  putreg32(val,addr)
+#  define sam_getreg(priv,addr)     getreg32(addr)
+#  define sam_putreg(priv,addr,val) putreg32(val,addr)
 #endif
 
 /* Buffer management */
@@ -1686,9 +1687,9 @@ static int sam_ifup(struct net_driver_s *dev)
   struct sam_gmac_s *priv = (struct sam_gmac_s *)dev->d_private;
   int ret;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff), (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff), (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Configure the GMAC interface for normal operation. */
 

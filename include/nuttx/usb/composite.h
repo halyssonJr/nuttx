@@ -28,8 +28,6 @@
 #include <nuttx/config.h>
 #include <nuttx/usb/usbdev.h>
 
-#ifdef CONFIG_USBDEV_COMPOSITE
-
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -130,15 +128,16 @@ void composite_uninitialize(FAR void *handle);
 struct usbdevclass_driver_s;
 struct usbdev_s;
 struct usbdev_req_s;
+struct usb_ctrlreq_s;
 
 int composite_ep0submit(FAR struct usbdevclass_driver_s *driver,
                         FAR struct usbdev_s *dev,
-                        FAR struct usbdev_req_s *ctrlreq);
+                        FAR struct usbdev_req_s *ctrlreq,
+                        FAR const struct usb_ctrlreq_s *ctrl);
 
 #undef EXTERN
 #if defined(__cplusplus)
 }
 #endif
 
-#endif /* CONFIG_USBDEV_COMPOSITE */
 #endif /* __INCLUDE_NUTTX_USB_COMPOSITE_H */

@@ -52,19 +52,21 @@
  * External Definitions
  ****************************************************************************/
 
-extern const struct procfs_operations proc_operations;
-extern const struct procfs_operations pm_operations;
-extern const struct procfs_operations irq_operations;
-extern const struct procfs_operations cpuload_operations;
-extern const struct procfs_operations critmon_operations;
-extern const struct procfs_operations meminfo_operations;
-extern const struct procfs_operations memdump_operations;
-extern const struct procfs_operations mempool_operations;
-extern const struct procfs_operations iobinfo_operations;
-extern const struct procfs_operations module_operations;
-extern const struct procfs_operations uptime_operations;
-extern const struct procfs_operations version_operations;
-extern const struct procfs_operations tcbinfo_operations;
+extern const struct procfs_operations g_cpuinfo_operations;
+extern const struct procfs_operations g_cpuload_operations;
+extern const struct procfs_operations g_critmon_operations;
+extern const struct procfs_operations g_fdt_operations;
+extern const struct procfs_operations g_iobinfo_operations;
+extern const struct procfs_operations g_irq_operations;
+extern const struct procfs_operations g_meminfo_operations;
+extern const struct procfs_operations g_memdump_operations;
+extern const struct procfs_operations g_mempool_operations;
+extern const struct procfs_operations g_module_operations;
+extern const struct procfs_operations g_pm_operations;
+extern const struct procfs_operations g_proc_operations;
+extern const struct procfs_operations g_tcbinfo_operations;
+extern const struct procfs_operations g_uptime_operations;
+extern const struct procfs_operations g_version_operations;
 
 /* This is not good.  These are implemented in other sub-systems.  Having to
  * deal with them here is not a good coupling. What is really needed is a
@@ -72,11 +74,11 @@ extern const struct procfs_operations tcbinfo_operations;
  * configuration.
  */
 
-extern const struct procfs_operations net_procfsoperations;
-extern const struct procfs_operations net_procfs_routeoperations;
-extern const struct procfs_operations part_procfsoperations;
-extern const struct procfs_operations mount_procfsoperations;
-extern const struct procfs_operations smartfs_procfsoperations;
+extern const struct procfs_operations g_mount_operations;
+extern const struct procfs_operations g_net_operations;
+extern const struct procfs_operations g_netroute_operations;
+extern const struct procfs_operations g_part_operations;
+extern const struct procfs_operations g_smartfs_operations;
 
 /****************************************************************************
  * Private Types
@@ -91,90 +93,98 @@ static const struct procfs_entry_s g_procfs_entries[] =
 #endif
 {
 #ifndef CONFIG_FS_PROCFS_EXCLUDE_PROCESS
-  { "[0-9]*/**",     &proc_operations,            PROCFS_UNKOWN_TYPE },
-  { "[0-9]*",        &proc_operations,            PROCFS_DIR_TYPE    },
+  { "[0-9]*/**",    &g_proc_operations,     PROCFS_UNKOWN_TYPE },
+  { "[0-9]*",       &g_proc_operations,     PROCFS_DIR_TYPE    },
+#endif
+
+#if defined(CONFIG_ARCH_HAVE_CPUINFO) && !defined(CONFIG_FS_PROCFS_EXCLUDE_CPUINFO)
+  { "cpuinfo",      &g_cpuinfo_operations,  PROCFS_FILE_TYPE   },
 #endif
 
 #if defined(CONFIG_SCHED_CPULOAD) && !defined(CONFIG_FS_PROCFS_EXCLUDE_CPULOAD)
-  { "cpuload",       &cpuload_operations,         PROCFS_FILE_TYPE   },
+  { "cpuload",      &g_cpuload_operations,  PROCFS_FILE_TYPE   },
 #endif
 
 #ifdef CONFIG_SCHED_CRITMONITOR
-  { "critmon",       &critmon_operations,         PROCFS_FILE_TYPE   },
+  { "critmon",      &g_critmon_operations,  PROCFS_FILE_TYPE   },
 #endif
 
-#ifdef CONFIG_SCHED_IRQMONITOR
-  { "irqs",          &irq_operations,             PROCFS_FILE_TYPE   },
-#endif
-
-#ifndef CONFIG_FS_PROCFS_EXCLUDE_MEMINFO
-  { "meminfo",       &meminfo_operations,         PROCFS_FILE_TYPE   },
-#  ifndef CONFIG_FS_PROCFS_EXCLUDE_MEMDUMP
-  { "memdump",       &memdump_operations,         PROCFS_FILE_TYPE   },
-#  endif
-#endif
-
-#ifndef CONFIG_FS_PROCFS_EXCLUDE_MEMPOOL
-  { "mempool",       &mempool_operations,         PROCFS_FILE_TYPE   },
-#endif
-
-#if defined(CONFIG_MM_IOB) && !defined(CONFIG_FS_PROCFS_EXCLUDE_IOBINFO)
-  { "iobinfo",       &iobinfo_operations,         PROCFS_FILE_TYPE   },
-#endif
-
-#if defined(CONFIG_MODULE) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MODULE)
-  { "modules",       &module_operations,          PROCFS_FILE_TYPE   },
+#if defined(CONFIG_DEVICE_TREE) && !defined(CONFIG_FS_PROCFS_EXCLUDE_FDT)
+  { "fdt",          &g_fdt_operations,      PROCFS_FILE_TYPE   },
 #endif
 
 #ifndef CONFIG_FS_PROCFS_EXCLUDE_BLOCKS
-  { "fs/blocks",     &mount_procfsoperations,     PROCFS_FILE_TYPE   },
+  { "fs/blocks",    &g_mount_operations,    PROCFS_FILE_TYPE   },
 #endif
 
 #ifndef CONFIG_FS_PROCFS_EXCLUDE_MOUNT
-  { "fs/mount",      &mount_procfsoperations,     PROCFS_FILE_TYPE   },
-#endif
-
-#ifndef CONFIG_FS_PROCFS_EXCLUDE_USAGE
-  { "fs/usage",      &mount_procfsoperations,     PROCFS_FILE_TYPE   },
+  { "fs/mount",     &g_mount_operations,    PROCFS_FILE_TYPE   },
 #endif
 
 #if defined(CONFIG_FS_SMARTFS) && !defined(CONFIG_FS_PROCFS_EXCLUDE_SMARTFS)
-  { "fs/smartfs**",  &smartfs_procfsoperations,   PROCFS_UNKOWN_TYPE },
+  { "fs/smartfs**", &g_smartfs_operations,  PROCFS_UNKOWN_TYPE },
+#endif
+
+#ifndef CONFIG_FS_PROCFS_EXCLUDE_USAGE
+  { "fs/usage",     &g_mount_operations,    PROCFS_FILE_TYPE   },
+#endif
+
+#if defined(CONFIG_MM_IOB) && !defined(CONFIG_FS_PROCFS_EXCLUDE_IOBINFO)
+  { "iobinfo",      &g_iobinfo_operations,  PROCFS_FILE_TYPE   },
+#endif
+
+#ifdef CONFIG_SCHED_IRQMONITOR
+  { "irqs",         &g_irq_operations,      PROCFS_FILE_TYPE   },
+#endif
+
+#ifndef CONFIG_FS_PROCFS_EXCLUDE_MEMINFO
+#  ifndef CONFIG_FS_PROCFS_EXCLUDE_MEMDUMP
+  { "memdump",      &g_memdump_operations,  PROCFS_FILE_TYPE   },
+#  endif
+  { "meminfo",      &g_meminfo_operations,  PROCFS_FILE_TYPE   },
+#endif
+
+#ifndef CONFIG_FS_PROCFS_EXCLUDE_MEMPOOL
+  { "mempool",      &g_mempool_operations,  PROCFS_FILE_TYPE   },
+#endif
+
+#if defined(CONFIG_MODULE) && !defined(CONFIG_FS_PROCFS_EXCLUDE_MODULE)
+  { "modules",      &g_module_operations,   PROCFS_FILE_TYPE   },
 #endif
 
 #if defined(CONFIG_NET) && !defined(CONFIG_FS_PROCFS_EXCLUDE_NET)
-  { "net",           &net_procfsoperations,       PROCFS_DIR_TYPE    },
+  { "net",          &g_net_operations,      PROCFS_DIR_TYPE    },
 #  if defined(CONFIG_NET_ROUTE) && !defined(CONFIG_FS_PROCFS_EXCLUDE_ROUTE)
-  { "net/route",     &net_procfs_routeoperations, PROCFS_DIR_TYPE    },
-  { "net/route/**",  &net_procfs_routeoperations, PROCFS_UNKOWN_TYPE },
+  { "net/route",    &g_netroute_operations, PROCFS_DIR_TYPE    },
+  { "net/route/**", &g_netroute_operations, PROCFS_UNKOWN_TYPE },
 #  endif
-  { "net/**",        &net_procfsoperations,       PROCFS_UNKOWN_TYPE },
+  { "net/**",       &g_net_operations,      PROCFS_UNKOWN_TYPE },
 #endif
 
 #if defined(CONFIG_MTD_PARTITION) && !defined(CONFIG_FS_PROCFS_EXCLUDE_PARTITIONS)
-  { "partitions",    &part_procfsoperations,      PROCFS_FILE_TYPE   },
+  { "partitions",   &g_part_operations,     PROCFS_FILE_TYPE   },
 #endif
 
 #if defined(CONFIG_PM) && defined(CONFIG_PM_PROCFS)
-  { "pm",            &pm_operations,              PROCFS_DIR_TYPE    },
-  { "pm/**",         &pm_operations,              PROCFS_UNKOWN_TYPE },
+  { "pm",           &g_pm_operations,       PROCFS_DIR_TYPE    },
+  { "pm/**",        &g_pm_operations,       PROCFS_UNKOWN_TYPE },
 #endif
 
 #ifndef CONFIG_FS_PROCFS_EXCLUDE_PROCESS
-  { "self",          &proc_operations,            PROCFS_DIR_TYPE    },
-  { "self/**",       &proc_operations,            PROCFS_UNKOWN_TYPE },
+  { "self",         &g_proc_operations,     PROCFS_DIR_TYPE    },
+  { "self/**",      &g_proc_operations,     PROCFS_UNKOWN_TYPE },
 #endif
 
-#if !defined(CONFIG_FS_PROCFS_EXCLUDE_UPTIME)
-  { "uptime",        &uptime_operations,          PROCFS_FILE_TYPE   },
+#if defined(CONFIG_ARCH_HAVE_TCBINFO) && !defined(CONFIG_FS_PROCFS_EXCLUDE_TCBINFO)
+  { "tcbinfo",      &g_tcbinfo_operations,  PROCFS_FILE_TYPE   },
 #endif
 
-#if !defined(CONFIG_FS_PROCFS_EXCLUDE_VERSION)
-  { "version",       &version_operations,         PROCFS_FILE_TYPE   },
+#ifndef CONFIG_FS_PROCFS_EXCLUDE_UPTIME
+  { "uptime",       &g_uptime_operations,   PROCFS_FILE_TYPE   },
 #endif
 
-#if defined(CONFIG_DEBUG_TCBINFO) && !defined(CONFIG_FS_PROCFS_EXCLUDE_TCBINFO)
-  { "tcbinfo",       &tcbinfo_operations,         PROCFS_FILE_TYPE   },
+#ifndef CONFIG_FS_PROCFS_EXCLUDE_VERSION
+  { "version",      &g_version_operations,  PROCFS_FILE_TYPE   },
 #endif
 };
 
@@ -244,7 +254,7 @@ static int     procfs_initialize(void);
  * with any compiler.
  */
 
-const struct mountpt_operations procfs_operations =
+const struct mountpt_operations g_procfs_operations =
 {
   procfs_open,       /* open */
   procfs_close,      /* close */
@@ -416,6 +426,7 @@ static int procfs_open(FAR struct file *filep, FAR const char *relpath,
 static int procfs_close(FAR struct file *filep)
 {
   FAR struct procfs_file_s *attr;
+  int ret = OK;
 
   /* Recover our private data from the struct file instance */
 
@@ -424,9 +435,17 @@ static int procfs_close(FAR struct file *filep)
 
   /* Release the file attributes structure */
 
-  kmm_free(attr);
+  if (attr->procfsentry->ops->close != NULL)
+    {
+      ret = attr->procfsentry->ops->close(filep);
+    }
+  else
+    {
+      kmm_free(attr);
+    }
+
   filep->f_priv = NULL;
-  return OK;
+  return ret;
 }
 
 /****************************************************************************
@@ -842,14 +861,14 @@ static int procfs_readdir(FAR struct inode *mountpt,
           FAR struct tcb_s *tcb = nxsched_get_tcb(pid);
           if (!tcb)
             {
-              ferr("ERROR: PID %d is no longer valid\n", (int)pid);
+              ferr("ERROR: PID %d is no longer valid\n", pid);
               return -ENOENT;
             }
 
           /* Save the filename=pid and file type=directory */
 
           entry->d_type = DTYPE_DIRECTORY;
-          procfs_snprintf(entry->d_name, NAME_MAX + 1, "%d", (int)pid);
+          procfs_snprintf(entry->d_name, NAME_MAX + 1, "%d", pid);
 
           /* Set up the next directory entry offset.  NOTE that we could use
            * the standard f_pos instead of our own private index.
@@ -885,7 +904,7 @@ static int procfs_readdir(FAR struct inode *mountpt,
                     pathpattern[level1->subdirlen + 1];
           level1->lastlen = strcspn(name, "/");
           level1->lastread = name;
-          strlcpy(entry->d_name, name, level1->lastlen);
+          strlcpy(entry->d_name, name, level1->lastlen + 1);
 
           /* Some of the search entries contain '**' wildcards.  When we
            * report the entry name, we must remove this wildcard search
@@ -1000,7 +1019,6 @@ static int procfs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
 {
   /* Fill in the statfs info */
 
-  memset(buf, 0, sizeof(struct statfs));
   buf->f_type    = PROCFS_MAGIC;
   buf->f_bsize   = 0;
   buf->f_blocks  = 0;
@@ -1168,8 +1186,6 @@ int procfs_register(FAR const struct procfs_entry_s *entry)
   newcount = g_procfs_entrycount + 1;
   newsize  = newcount * sizeof(struct procfs_entry_s);
 
-  sched_lock();
-
   newtable = (FAR struct procfs_entry_s *)
     kmm_realloc(g_procfs_entries, newsize);
   if (newtable != NULL)
@@ -1186,7 +1202,6 @@ int procfs_register(FAR const struct procfs_entry_s *entry)
       ret = OK;
     }
 
-  sched_unlock();
   return ret;
 }
 #endif

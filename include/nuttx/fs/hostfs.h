@@ -82,7 +82,7 @@
 #define NUTTX_O_TRUNC           (1 << 5)  /* Delete contents */
 #define NUTTX_O_NONBLOCK        (1 << 6)  /* Don't wait for data */
 #define NUTTX_O_SYNC            (1 << 7)  /* Synchronize output on write */
-#define NUTTX_O_BINARY          (1 << 8)  /* Open the file in binary mode. */
+#define NUTTX_O_TEXT            (1 << 8)  /* Open the file in text (translated) mode. */
 #define NUTTX_O_DIRECT          (1 << 9)  /* Avoid caching, write directly to hardware */
 #define NUTTX_O_CLOEXEC         (1 << 10) /* Close on execute */
 #define NUTTX_O_DIRECTORY       (1 << 11) /* Must be a directory */
@@ -186,7 +186,8 @@ int           host_open(const char *pathname, int flags, nuttx_mode_t mode);
 int           host_close(int fd);
 nuttx_ssize_t host_read(int fd, void *buf, nuttx_size_t count);
 nuttx_ssize_t host_write(int fd, const void *buf, nuttx_size_t count);
-nuttx_off_t   host_lseek(int fd, nuttx_off_t offset, int whence);
+nuttx_off_t   host_lseek(int fd, nuttx_off_t pos, nuttx_off_t offset,
+                         int whence);
 int           host_ioctl(int fd, int request, unsigned long arg);
 void          host_sync(int fd);
 int           host_dup(int fd);
@@ -211,7 +212,7 @@ int           host_open(const char *pathname, int flags, int mode);
 int           host_close(int fd);
 ssize_t       host_read(int fd, void *buf, size_t count);
 ssize_t       host_write(int fd, const void *buf, size_t count);
-off_t         host_lseek(int fd, off_t offset, int whence);
+off_t         host_lseek(int fd, off_t pos, off_t offset, int whence);
 int           host_ioctl(int fd, int request, unsigned long arg);
 void          host_sync(int fd);
 int           host_dup(int fd);

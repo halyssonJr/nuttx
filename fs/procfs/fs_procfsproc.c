@@ -48,6 +48,7 @@
 #include <nuttx/sched.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/environ.h>
+#include <nuttx/signal.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/procfs.h>
 #include <nuttx/fs/ioctl.h>
@@ -243,7 +244,7 @@ static int     proc_stat(FAR const char *relpath, FAR struct stat *buf);
  * with any compiler.
  */
 
-const struct procfs_operations proc_operations =
+const struct procfs_operations g_proc_operations =
 {
   proc_open,          /* open */
   proc_close,         /* close */
@@ -637,8 +638,8 @@ static ssize_t proc_status(FAR struct proc_file_s *procfile,
   /* Show the signal mask. Note: sigset_t is uint32_t on NuttX. */
 
   linesize = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                             "%-12s%08" PRIx32 "\n",
-                             "SigMask:", tcb->sigprocmask);
+                             "%-12s" SIGSET_FMT "\n",
+                             "SigMask:", SIGSET_ELEM(&tcb->sigprocmask));
   copysize = procfs_memcpy(procfile->line, linesize, buffer, remaining,
                            &offset);
 
@@ -761,6 +762,7 @@ static ssize_t proc_critmon(FAR struct proc_file_s *procfile,
                             size_t buflen, off_t offset)
 {
   struct timespec maxtime;
+  struct timespec runtime;
   size_t remaining;
   size_t linesize;
   size_t copysize;
@@ -850,12 +852,18 @@ static ssize_t proc_critmon(FAR struct proc_file_s *procfile,
   /* Reset the maximum */
 
   tcb->run_max = 0;
+  up_perf_convert(tcb->run_time, &runtime);
 
-  /* Generate output for maximum time thread running */
+  /* Output the maximum time the thread has run and
+   * the total time the thread has run
+   */
 
-  linesize = procfs_snprintf(procfile->line, STATUS_LINELEN, "%lu.%09lu\n",
+  linesize = procfs_snprintf(procfile->line, STATUS_LINELEN,
+                             "%lu.%09lu,%lu.%09lu\n",
                              (unsigned long)maxtime.tv_sec,
-                             (unsigned long)maxtime.tv_nsec);
+                             (unsigned long)maxtime.tv_nsec,
+                             (unsigned long)runtime.tv_sec,
+                             (unsigned long)(runtime.tv_nsec));
   copysize = procfs_memcpy(procfile->line, linesize, buffer, remaining,
                            &offset);
 
@@ -878,16 +886,20 @@ static ssize_t proc_heap(FAR struct proc_file_s *procfile,
   size_t copysize;
   size_t totalsize = 0;
   struct mallinfo_task info;
+  struct malltask task;
 
+  task.pid = tcb->pid;
+  task.seqmin = 0;
+  task.seqmax = ULONG_MAX;
 #ifdef CONFIG_MM_KERNEL_HEAP
   if ((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_KERNEL)
     {
-      info = kmm_mallinfo_task(tcb->pid);
+      info = kmm_mallinfo_task(&task);
     }
   else
 #endif
     {
-      info = mallinfo_task(tcb->pid);
+      info = mallinfo_task(&task);
     }
 
   /* Show the heap alloc size */
@@ -1191,8 +1203,8 @@ static ssize_t proc_groupfd(FAR struct proc_file_s *procfile,
   totalsize = 0;
 
   linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                               "\n%-3s %-8s %-8s %s\n",
-                               "FD", "POS", "OFLAGS", "PATH");
+                               "\n%-3s %-7s %-4s %-9s %s\n",
+                               "FD", "OFLAGS", "TYPE", "POS", "PATH");
   copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
                              &offset);
 
@@ -1215,91 +1227,35 @@ static ssize_t proc_groupfd(FAR struct proc_file_s *procfile,
         {
           /* Is there an inode associated with the file descriptor? */
 
-          if (file->f_inode && !INODE_IS_SOCKET(file->f_inode))
+          if (file->f_inode == NULL)
             {
-              if (file_ioctl(file, FIOC_FILEPATH, path) < 0)
-                {
-                  path[0] = '\0';
-                }
+              continue;
+            }
 
-              linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                                    "%3d %8ld %8x",
-                                    i * CONFIG_NFILE_DESCRIPTORS_PER_BLOCK +
-                                    j, (long)file->f_pos,
-                                    file->f_oflags);
-              copysize   = procfs_memcpy(procfile->line, linesize, buffer,
-                                         remaining, &offset);
+          if (file_ioctl(file, FIOC_FILEPATH, path) < 0)
+            {
+              path[0] = '\0';
+            }
 
-              totalsize += copysize;
-              buffer    += copysize;
-              remaining -= copysize;
+          linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
+                                       "%-3d %-7d %-4x %-9ld %s\n",
+                                       i * CONFIG_NFILE_DESCRIPTORS_PER_BLOCK
+                                       + j, file->f_oflags,
+                                       INODE_GET_TYPE(file->f_inode),
+                                       (long)file->f_pos, path);
+          copysize   = procfs_memcpy(procfile->line, linesize,
+                                     buffer, remaining, &offset);
 
-              linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                                           " %s\n", path);
-              copysize   = procfs_memcpy(procfile->line, linesize, buffer,
-                                         remaining, &offset);
+          totalsize += copysize;
+          buffer    += copysize;
+          remaining -= copysize;
 
-              totalsize += copysize;
-              buffer    += copysize;
-              remaining -= copysize;
-
-              if (totalsize >= buflen)
-                {
-                  return totalsize;
-                }
+          if (totalsize >= buflen)
+            {
+              return totalsize;
             }
         }
     }
-
-#ifdef CONFIG_NET
-  linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                               "\n%-3s %-2s %-3s %s\n",
-                               "SD", "RF", "TYP", "FLAGS");
-  copysize   = procfs_memcpy(procfile->line, linesize, buffer, remaining,
-                             &offset);
-
-  totalsize += copysize;
-  buffer    += copysize;
-  remaining -= copysize;
-
-  if (totalsize >= buflen)
-    {
-      return totalsize;
-    }
-
-  /* Examine each open socket descriptor */
-
-  for (i = 0; i < group->tg_filelist.fl_rows; i++)
-    {
-      for (j = 0, file = group->tg_filelist.fl_files[i];
-           j < CONFIG_NFILE_DESCRIPTORS_PER_BLOCK;
-           j++, file++)
-        {
-          /* Is there an connection associated with the socket descriptor? */
-
-          if (file->f_inode && INODE_IS_SOCKET(file->f_inode))
-            {
-              FAR struct socket *socket = file->f_priv;
-              FAR struct socket_conn_s *conn = socket->s_conn;
-              linesize   = procfs_snprintf(procfile->line, STATUS_LINELEN,
-                                    "%3d %3d %02x",
-                                    i * CONFIG_NFILE_DESCRIPTORS_PER_BLOCK +
-                                    j, socket->s_type, conn->s_flags);
-              copysize   = procfs_memcpy(procfile->line, linesize, buffer,
-                                         remaining, &offset);
-
-              totalsize += copysize;
-              buffer    += copysize;
-              remaining -= copysize;
-
-              if (totalsize >= buflen)
-                {
-                  return totalsize;
-                }
-            }
-        }
-    }
-#endif
 
   return totalsize;
 }
@@ -1462,7 +1418,7 @@ static int proc_open(FAR struct file *filep, FAR const char *relpath,
   tcb = nxsched_get_tcb(pid);
   if (tcb == NULL)
     {
-      ferr("ERROR: PID %d is no longer valid\n", (int)pid);
+      ferr("ERROR: PID %d is no longer valid\n", pid);
       return -ENOENT;
     }
 
@@ -1549,7 +1505,7 @@ static ssize_t proc_read(FAR struct file *filep, FAR char *buffer,
   tcb = nxsched_get_tcb(procfile->pid);
   if (tcb == NULL)
     {
-      ferr("ERROR: PID %d is not valid\n", (int)procfile->pid);
+      ferr("ERROR: PID %d is not valid\n", procfile->pid);
       return -ENODEV;
     }
 
@@ -1639,7 +1595,7 @@ static ssize_t proc_write(FAR struct file *filep, FAR const char *buffer,
   tcb = nxsched_get_tcb(procfile->pid);
   if (tcb == NULL)
     {
-      ferr("ERROR: PID %d is not valid\n", (int)procfile->pid);
+      ferr("ERROR: PID %d is not valid\n", procfile->pid);
       return -ENODEV;
     }
 
@@ -1768,7 +1724,7 @@ static int proc_opendir(FAR const char *relpath,
   tcb = nxsched_get_tcb(pid);
   if (tcb == NULL)
     {
-      ferr("ERROR: PID %d is not valid\n", (int)pid);
+      ferr("ERROR: PID %d is not valid\n", pid);
       return -ENOENT;
     }
 
@@ -1888,7 +1844,7 @@ static int proc_readdir(FAR struct fs_dirent_s *dir,
       tcb = nxsched_get_tcb(pid);
       if (tcb == NULL)
         {
-          ferr("ERROR: PID %d is no longer valid\n", (int)pid);
+          ferr("ERROR: PID %d is no longer valid\n", pid);
           return -ENOENT;
         }
 
@@ -2006,7 +1962,7 @@ static int proc_stat(const char *relpath, struct stat *buf)
   tcb = nxsched_get_tcb(pid);
   if (tcb == NULL)
     {
-      ferr("ERROR: PID %d is no longer valid\n", (int)pid);
+      ferr("ERROR: PID %d is no longer valid\n", pid);
       return -ENOENT;
     }
 

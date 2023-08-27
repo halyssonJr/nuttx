@@ -56,16 +56,8 @@ static int        local_getsockname(FAR struct socket *psock,
                     FAR struct sockaddr *addr, FAR socklen_t *addrlen);
 static int        local_getpeername(FAR struct socket *psock,
                     FAR struct sockaddr *addr, FAR socklen_t *addrlen);
-#ifndef CONFIG_NET_LOCAL_STREAM
-static int        local_listen(FAR struct socket *psock, int backlog);
-#endif
 static int        local_connect(FAR struct socket *psock,
                     FAR const struct sockaddr *addr, socklen_t addrlen);
-#ifndef CONFIG_NET_LOCAL_STREAM
-static int        local_accept(FAR struct socket *psock,
-                    FAR struct sockaddr *addr, FAR socklen_t *addrlen,
-                    FAR struct socket *newsock);
-#endif
 static int        local_poll(FAR struct socket *psock,
                     FAR struct pollfd *fds, bool setup);
 static int        local_close(FAR struct socket *psock);
@@ -92,9 +84,17 @@ const struct sock_intf_s g_local_sockif =
   local_bind,        /* si_bind */
   local_getsockname, /* si_getsockname */
   local_getpeername, /* si_getpeername */
+#ifdef CONFIG_NET_LOCAL_STREAM
   local_listen,      /* si_listen */
+#else
+  NULL,              /* si_listen */
+#endif
   local_connect,     /* si_connect */
+#ifdef CONFIG_NET_LOCAL_STREAM
   local_accept,      /* si_accept */
+#else
+  NULL,              /* si_accept */
+#endif
   local_poll,        /* si_poll */
   local_sendmsg,     /* si_sendmsg */
   local_recvmsg,     /* si_recvmsg */
@@ -379,7 +379,7 @@ static int local_getsockname(FAR struct socket *psock,
       return OK;
     }
 
-  conn = (FAR struct local_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   /* Save the address family */
 
@@ -463,7 +463,82 @@ static int local_getpeername(FAR struct socket *psock,
                              FAR struct sockaddr *addr,
                              FAR socklen_t *addrlen)
 {
-  return local_getsockname(psock, addr, addrlen);
+  FAR struct sockaddr_un *unaddr = (FAR struct sockaddr_un *)addr;
+  FAR struct local_conn_s *conn;
+  FAR struct local_conn_s *peer;
+
+  DEBUGASSERT(psock != NULL && psock->s_conn != NULL &&
+              unaddr != NULL && addrlen != NULL);
+
+  if (*addrlen < sizeof(sa_family_t))
+    {
+      /* This is apparently not an error */
+
+      *addrlen = 0;
+      return OK;
+    }
+
+  /* Verify that the socket has been connected */
+
+  conn = psock->s_conn;
+
+  if (conn->lc_state != LOCAL_STATE_CONNECTED)
+    {
+      return -ENOTCONN;
+    }
+
+  peer = conn->lc_peer;
+
+  /* Save the address family */
+
+  unaddr->sun_family = AF_LOCAL;
+  if (*addrlen > sizeof(sa_family_t))
+    {
+      /* Now copy the address description.  */
+
+      if (peer->lc_type == LOCAL_TYPE_UNNAMED)
+        {
+          /* Zero-length sun_path... This is an abstract Unix domain socket */
+
+          *addrlen = sizeof(sa_family_t);
+        }
+      else /* conn->lc_type = LOCAL_TYPE_PATHNAME */
+        {
+          /* Get the full length of the socket name (incl. null terminator) */
+
+          size_t namelen = strlen(peer->lc_path) + 1 +
+                           (peer->lc_type == LOCAL_TYPE_ABSTRACT);
+
+          /* Get the available length in the user-provided buffer. */
+
+          size_t pathlen = *addrlen - sizeof(sa_family_t);
+
+          /* Clip the socket name size so that if fits in the user buffer */
+
+          if (pathlen < namelen)
+            {
+              namelen = pathlen;
+            }
+
+          /* Copy the path into the user address structure */
+
+          if (peer->lc_type == LOCAL_TYPE_ABSTRACT)
+            {
+              unaddr->sun_path[0] = '\0';
+              strlcpy(&unaddr->sun_path[1],
+                      peer->lc_path, namelen - 1);
+            }
+          else
+            {
+               strlcpy(unaddr->sun_path,
+                      peer->lc_path, namelen);
+            }
+
+          *addrlen = sizeof(sa_family_t) + namelen;
+        }
+    }
+
+  return OK;
 }
 
 #ifdef CONFIG_NET_SOCKOPTS
@@ -549,38 +624,6 @@ static int local_setsockopt(FAR struct socket *psock, int level, int option,
 #endif
 
 /****************************************************************************
- * Name: local_listen
- *
- * Description:
- *   To accept connections, a socket is first created with psock_socket(), a
- *   willingness to accept incoming connections and a queue limit for
- *   incoming connections are specified with psock_listen(), and then the
- *   connections are accepted with psock_accept().  For the case of local
- *   unix sockets, psock_listen() calls this function.  The psock_listen()
- *   call applies only to sockets of type SOCK_STREAM or SOCK_SEQPACKET.
- *
- * Input Parameters:
- *   psock    Reference to an internal, boound socket structure.
- *   backlog  The maximum length the queue of pending connections may grow.
- *            If a connection request arrives with the queue full, the client
- *            may receive an error with an indication of ECONNREFUSED or,
- *            if the underlying protocol supports retransmission, the request
- *            may be ignored so that retries succeed.
- *
- * Returned Value:
- *   On success, zero is returned. On error, a negated errno value is
- *   returned.  See listen() for the set of appropriate error values.
- *
- ****************************************************************************/
-
-#ifndef CONFIG_NET_LOCAL_STREAM
-int local_listen(FAR struct socket *psock, int backlog)
-{
-  return -EOPNOTSUPP;
-}
-#endif
-
-/****************************************************************************
  * Name: local_connect
  *
  * Description:
@@ -650,7 +693,7 @@ static int local_connect(FAR struct socket *psock,
         {
           /* Perform the datagram connection logic */
 
-#warning Missing logic
+          /* #warning Missing logic */
 
           return -ENOSYS;
         }
@@ -669,58 +712,6 @@ static int local_connect(FAR struct socket *psock,
         return -EBADF;
     }
 }
-
-/****************************************************************************
- * Name: local_accept
- *
- * Description:
- *   The pkt_accept function is used with connection-based socket types
- *   (SOCK_STREAM, SOCK_SEQPACKET and SOCK_RDM). It extracts the first
- *   connection request on the queue of pending connections, creates a new
- *   connected socket with mostly the same properties as 'sockfd', and
- *   allocates a new socket descriptor for the socket, which is returned. The
- *   newly created socket is no longer in the listening state. The original
- *   socket 'sockfd' is unaffected by this call.  Per file descriptor flags
- *   are not inherited across an pkt_accept.
- *
- *   The 'sockfd' argument is a socket descriptor that has been created with
- *   socket(), bound to a local address with bind(), and is listening for
- *   connections after a call to listen().
- *
- *   On return, the 'addr' structure is filled in with the address of the
- *   connecting entity. The 'addrlen' argument initially contains the size
- *   of the structure pointed to by 'addr'; on return it will contain the
- *   actual length of the address returned.
- *
- *   If no pending connections are present on the queue, and the socket is
- *   not marked as non-blocking, pkt_accept blocks the caller until a
- *   connection is present. If the socket is marked non-blocking and no
- *   pending connections are present on the queue, pkt_accept returns
- *   EAGAIN.
- *
- * Input Parameters:
- *   psock    Reference to the listening socket structure
- *   addr     Receives the address of the connecting client
- *   addrlen  Input: allocated size of 'addr',
- *            Return: returned size of 'addr'
- *   newsock  Location to return the accepted socket information.
- *
- * Returned Value:
- *   Returns 0 (OK) on success.  On failure, it returns a negated errno
- *   value.  See accept() for a description of the appropriate error value.
- *
- * Assumptions:
- *   The network is locked.
- *
- ****************************************************************************/
-
-#ifndef CONFIG_NET_LOCAL_STREAM
-static int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
-                        FAR socklen_t *addrlen, FAR struct socket *newsock)
-{
-  return -EAFNOSUPPORT;
-}
-#endif
 
 /****************************************************************************
  * Name: local_poll
@@ -835,7 +826,7 @@ static int local_ioctl(FAR struct socket *psock, int cmd, unsigned long arg)
   FAR struct local_conn_s *conn;
   int ret = OK;
 
-  conn = (FAR struct local_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   switch (cmd)
     {
@@ -871,6 +862,30 @@ static int local_ioctl(FAR struct socket *psock, int cmd, unsigned long arg)
             ret = -ENOTCONN;
           }
         break;
+      case PIPEIOC_POLLINTHRD:
+        if (conn->lc_infile.f_inode != NULL)
+          {
+            ret = file_ioctl(&conn->lc_infile, cmd, arg);
+          }
+        else
+          {
+            ret = -ENOTCONN;
+          }
+        break;
+      case PIPEIOC_POLLOUTTHRD:
+        if (conn->lc_outfile.f_inode != NULL)
+          {
+            ret = file_ioctl(&conn->lc_outfile, cmd, arg);
+          }
+        else
+          {
+            ret = -ENOTCONN;
+          }
+        break;
+      case FIOC_FILEPATH:
+        snprintf((FAR char *)(uintptr_t)arg, PATH_MAX, "local:[%s]",
+                 conn->lc_path);
+        break;
       case BIOC_FLUSH:
         ret = -EINVAL;
         break;
@@ -895,12 +910,9 @@ static int local_ioctl(FAR struct socket *psock, int cmd, unsigned long arg)
 
 static int local_socketpair(FAR struct socket *psocks[2])
 {
-#if defined(CONFIG_NET_LOCAL_STREAM) || defined(CONFIG_NET_LOCAL_DGRAM)
   FAR struct local_conn_s *conns[2];
-#ifdef CONFIG_NET_LOCAL_STREAM
   bool nonblock;
   int ret;
-#endif /* CONFIG_NET_LOCAL_STREAM */
   int i;
 
   for (i = 0; i < 2; i++)
@@ -914,18 +926,12 @@ static int local_socketpair(FAR struct socket *psocks[2])
       conns[i]->lc_state = LOCAL_STATE_BOUND;
     }
 
-#ifdef CONFIG_NET_LOCAL_DGRAM
-#ifdef CONFIG_NET_LOCAL_STREAM
-  if (psocks[0]->s_type == SOCK_DGRAM)
-#endif /* CONFIG_NET_LOCAL_STREAM */
-    {
-      return OK;
-    }
-#endif /* CONFIG_NET_LOCAL_DGRAM */
-
-#ifdef CONFIG_NET_LOCAL_STREAM
   conns[0]->lc_instance_id = conns[1]->lc_instance_id
+#ifdef CONFIG_NET_LOCAL_STREAM
                            = local_generate_instance_id();
+#else
+                           = -1;
+#endif
 
   /* Create the FIFOs needed for the connection */
 
@@ -971,15 +977,22 @@ static int local_socketpair(FAR struct socket *psocks[2])
 
   conns[0]->lc_state = conns[1]->lc_state
                      = LOCAL_STATE_CONNECTED;
+
+#ifdef CONFIG_NET_LOCAL_DGRAM
+  if (psocks[0]->s_type == SOCK_DGRAM)
+    {
+      for (i = 0; i < 2; i++)
+        {
+          ret = local_set_pollthreshold(conns[i], sizeof(uint16_t));
+        }
+    }
+#endif
+
   return OK;
 
 errout:
   local_release_fifos(conns[0]);
   return ret;
-#endif /* CONFIG_NET_LOCAL_STREAM */
-#else
-  return -EOPNOTSUPP;
-#endif /* CONFIG_NET_LOCAL_STREAM || CONFIG_NET_LOCAL_DGRAM */
 }
 
 /****************************************************************************

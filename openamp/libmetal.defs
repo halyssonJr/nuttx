@@ -32,6 +32,8 @@ LIBMETAL_ARCH = x86_64
 endif
 else ifeq ($(CONFIG_ARCH), risc-v)
 LIBMETAL_ARCH = riscv
+else ifeq ($(CONFIG_ARCH), arm64)
+LIBMETAL_ARCH = aarch64
 else
 LIBMETAL_ARCH = $(CONFIG_ARCH)
 endif
@@ -65,12 +67,14 @@ LIBMETAL_HDRS_SEDEXP := \
 	 s/@PROJECT_SYSTEM_UPPER@/nuttx/g; \
 	 s/@PROJECT_PROCESSOR_UPPER@/$(LIBMETAL_ARCH)/g; \
 	 s/@PROJECT_MACHINE_UPPER@/$(CONFIG_ARCH_CHIP)/g; \
+	 s/cmakedefine HAVE_STDATOMIC_H/include <nuttx\/compiler.h>/g; \
+	 s/defined(HAVE_STDATOMIC_H)/defined(CONFIG_HAVE_ATOMICS)/g; \
 	 s/cmakedefine/undef/g"
 
 ifeq ($(wildcard libmetal/.git),)
 libmetal.zip:
 # Download and unpack tarball if no git repo found
-	$(Q) curl -L https://github.com/OpenAMP/libmetal/archive/v$(VERSION).zip -o libmetal.zip
+	$(call DOWNLOAD,https://github.com/OpenAMP/libmetal/archive,v$(VERSION).zip,libmetal.zip)
 	$(Q) unzip -o libmetal.zip
 	$(Q) mv libmetal-$(VERSION) libmetal
 

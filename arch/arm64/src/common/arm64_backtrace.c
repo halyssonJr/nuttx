@@ -53,23 +53,22 @@ static int backtrace(uintptr_t *base, uintptr_t *limit,
 
   if (pc)
     {
-      i++;
-      if (*skip-- <= 0)
+      if ((*skip)-- <= 0)
         {
-          *buffer++ = pc;
+          buffer[i++] = pc;
         }
     }
 
-  for (; i < size; fp = (uintptr_t *)*(fp - 1), i++)
+  for (; i < size; fp = (uintptr_t *)*fp)
     {
       if (fp > limit || fp < base || *fp == 0)
         {
           break;
         }
 
-      if (*skip-- <= 0)
+      if ((*skip)-- <= 0)
         {
-          *buffer++ = (void *)*fp;
+          buffer[i++] = (void *)*(fp + 1);
         }
     }
 
@@ -117,6 +116,11 @@ int up_backtrace(struct tcb_s *tcb,
   irqstate_t flags;
   int ret;
 
+  if (rtcb == NULL)
+    {
+      rtcb = running_task();
+    }
+
   if (size <= 0 || !buffer)
     {
       return 0;
@@ -146,10 +150,10 @@ int up_backtrace(struct tcb_s *tcb,
             {
               p_regs = (struct regs_context *)CURRENT_REGS;
               ret += backtrace(rtcb->stack_base_ptr,
-                 rtcb->stack_base_ptr + rtcb->adj_stack_size,
-                 (void *)p_regs->regs[REG_X29],
-                 (void *)p_regs->elr,
-                 &buffer[ret], size - ret, &skip);
+                               rtcb->stack_base_ptr + rtcb->adj_stack_size,
+                               (void *)p_regs->regs[REG_X29],
+                               (void *)p_regs->elr,
+                               &buffer[ret], size - ret, &skip);
             }
         }
       else
@@ -163,13 +167,13 @@ int up_backtrace(struct tcb_s *tcb,
   else
     {
       flags = enter_critical_section();
-      p_regs = (struct regs_context *)CURRENT_REGS;
+      p_regs = (struct regs_context *)tcb->xcp.regs;
 
       ret = backtrace(tcb->stack_base_ptr,
-            tcb->stack_base_ptr + tcb->adj_stack_size,
-            (void *)p_regs->regs[REG_X29],
-            (void *)p_regs->elr,
-            buffer, size, &skip);
+                      tcb->stack_base_ptr + tcb->adj_stack_size,
+                      (void *)p_regs->regs[REG_X29],
+                      (void *)p_regs->elr,
+                      buffer, size, &skip);
 
       leave_critical_section(flags);
     }

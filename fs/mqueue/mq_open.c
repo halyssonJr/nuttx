@@ -191,6 +191,14 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
 
       mode = va_arg(ap, mode_t);
       attr = va_arg(ap, FAR struct mq_attr *);
+      if (attr != NULL)
+        {
+          if (attr->mq_maxmsg <= 0 || attr->mq_msgsize <= 0)
+            {
+              ret = -EINVAL;
+              goto errout;
+            }
+        }
     }
 
   mode &= ~umask;
@@ -253,10 +261,9 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
 
       /* Associate the inode with a file structure */
 
-      mq->f_oflags  = oflags;
-      mq->f_pos     = 0;
-      mq->f_inode   = inode;
-      mq->f_priv    = NULL;
+      memset(mq, 0, sizeof(*mq));
+      mq->f_oflags = oflags;
+      mq->f_inode  = inode;
 
       if (created)
         {
@@ -303,10 +310,9 @@ static int file_mq_vopen(FAR struct file *mq, FAR const char *mq_name,
 
       /* Associate the inode with a file structure */
 
-      mq->f_oflags  = oflags;
-      mq->f_pos     = 0;
-      mq->f_inode   = inode;
-      mq->f_priv    = NULL;
+      memset(mq, 0, sizeof(*mq));
+      mq->f_oflags = oflags;
+      mq->f_inode  = inode;
 
       INODE_SET_MQUEUE(inode);
       inode->u.i_ops    = &g_nxmq_fileops;

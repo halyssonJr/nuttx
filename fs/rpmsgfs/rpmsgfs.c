@@ -36,7 +36,7 @@
 #include <debug.h>
 #include <limits.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/ioctl.h>
@@ -153,7 +153,7 @@ static int     rpmsgfs_chstat(FAR struct inode *mountpt,
  * with any compiler.
  */
 
-const struct mountpt_operations rpmsgfs_operations =
+const struct mountpt_operations g_rpmsgfs_operations =
 {
   rpmsgfs_open,          /* open */
   rpmsgfs_close,         /* close */
@@ -247,7 +247,7 @@ static void rpmsgfs_mkpath(FAR struct rpmsgfs_mountpt_s *fs,
 
   if (depth >= 0)
     {
-      strncat(path, &relpath[first], pathlen - strlen(path) - 1);
+      strlcat(path, &relpath[first], pathlen - strlen(path));
     }
 
   while (fs->timeout > 0)
@@ -1108,7 +1108,7 @@ static int rpmsgfs_bind(FAR struct inode *blkdriver, FAR const void *data,
     }
 
   ret = rpmsgfs_client_bind(&fs->handle, cpuname);
-  kmm_free(options);
+  lib_free(options);
   if (ret < 0)
     {
       kmm_free(fs);
@@ -1140,7 +1140,7 @@ static int rpmsgfs_bind(FAR struct inode *blkdriver, FAR const void *data,
 
   if (fs->fs_root[len - 1] != '/')
     {
-      strcat(fs->fs_root, "/");
+      strlcat(fs->fs_root, "/", sizeof(fs->fs_root));
     }
 
   *handle = (FAR void *)fs;
@@ -1234,7 +1234,6 @@ static int rpmsgfs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
 
   /* Call the host fs to perform the statfs */
 
-  memset(buf, 0, sizeof(struct statfs));
   ret = rpmsgfs_client_statfs(fs->handle, fs->fs_root, buf);
   buf->f_type = RPMSGFS_MAGIC;
 

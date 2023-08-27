@@ -60,6 +60,18 @@ ifeq ($(CONFIG_LIBC_ENVPATH),y)
 CSRCS += lib_envpath.c
 endif
 
+# Fdsan support
+
+ifeq ($(CONFIG_FDSAN),y)
+CSRCS += lib_fdsan.c
+endif
+
+# Fdcheck support
+
+ifeq ($(CONFIG_FDCHECK),y)
+CSRCS += lib_fdcheck.c
+endif
+
 # To ensure uname information is newest,
 # add lib_utsname.o to phony target for force rebuild
 

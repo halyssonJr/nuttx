@@ -32,6 +32,7 @@
 #include <poll.h>
 #include <limits.h>
 #include <debug.h>
+#include <net/if.h>
 
 #include <nuttx/kmalloc.h>
 #include <nuttx/fs/fs.h>
@@ -39,6 +40,8 @@
 #include <nuttx/video/fb.h>
 #include <nuttx/mutex.h>
 #include <nuttx/rptun/openamp.h>
+#include <nuttx/net/ioctl.h>
+#include <nuttx/drivers/rpmsgdev.h>
 
 #include "rpmsgdev.h"
 
@@ -69,6 +72,7 @@ struct rpmsgdev_s
                                       * opreation until the connection
                                       * between two cpu established.
                                       */
+  uint32_t              flags;       /* Read and write special handle flags */
 };
 
 /* Rpmsg device cookie used to handle the response from the remote cpu */
@@ -96,7 +100,7 @@ static ssize_t rpmsgdev_write(FAR struct file *filep, FAR const char *buffer,
                               size_t buflen);
 static off_t   rpmsgdev_seek(FAR struct file *filep, off_t offset,
                              int whence);
-static size_t  rpmsgdev_ioctl_arglen(int cmd);
+static ssize_t rpmsgdev_ioctl_arglen(int cmd);
 static int     rpmsgdev_ioctl(FAR struct file *filep, int cmd,
                               unsigned long arg);
 static int     rpmsgdev_poll(FAR struct file *filep, FAR struct pollfd *fds,
@@ -145,14 +149,15 @@ static void    rpmsgdev_ns_bound(struct rpmsg_endpoint *ept);
 
 static const rpmsg_ept_cb g_rpmsgdev_handler[] =
 {
-  [RPMSGDEV_OPEN]   = rpmsgdev_default_handler,
-  [RPMSGDEV_CLOSE]  = rpmsgdev_default_handler,
-  [RPMSGDEV_READ]   = rpmsgdev_read_handler,
-  [RPMSGDEV_WRITE]  = rpmsgdev_default_handler,
-  [RPMSGDEV_LSEEK]  = rpmsgdev_default_handler,
-  [RPMSGDEV_IOCTL]  = rpmsgdev_ioctl_handler,
-  [RPMSGDEV_POLL]   = rpmsgdev_default_handler,
-  [RPMSGDEV_NOTIFY] = rpmsgdev_notify_handler,
+  [RPMSGDEV_OPEN]        = rpmsgdev_default_handler,
+  [RPMSGDEV_CLOSE]       = rpmsgdev_default_handler,
+  [RPMSGDEV_READ]        = rpmsgdev_read_handler,
+  [RPMSGDEV_READ_NOFRAG] = rpmsgdev_read_handler,
+  [RPMSGDEV_WRITE]       = rpmsgdev_default_handler,
+  [RPMSGDEV_LSEEK]       = rpmsgdev_default_handler,
+  [RPMSGDEV_IOCTL]       = rpmsgdev_ioctl_handler,
+  [RPMSGDEV_POLL]        = rpmsgdev_default_handler,
+  [RPMSGDEV_NOTIFY]      = rpmsgdev_notify_handler,
 };
 
 /* File operations */
@@ -392,6 +397,7 @@ static ssize_t rpmsgdev_read(FAR struct file *filep, FAR char *buffer,
   FAR struct rpmsgdev_priv_s *priv;
   struct rpmsgdev_read_s msg;
   struct iovec read;
+  uint32_t command;
   ssize_t ret;
 
   if (buffer == NULL)
@@ -430,8 +436,10 @@ static ssize_t rpmsgdev_read(FAR struct file *filep, FAR char *buffer,
 
   msg.filep = priv->filep;
   msg.count = buflen;
+  command   = dev->flags & RPMSGDEV_NOFRAG_READ ?
+              RPMSGDEV_READ_NOFRAG : RPMSGDEV_READ;
 
-  ret = rpmsgdev_send_recv(dev, RPMSGDEV_READ, true, &msg.header,
+  ret = rpmsgdev_send_recv(dev, command, true, &msg.header,
                            sizeof(msg) - 1, &read);
 
   return read.iov_len ? read.iov_len : ret;
@@ -515,6 +523,12 @@ static ssize_t rpmsgdev_write(FAR struct file *filep, const char *buffer,
 
           space = buflen - written;
           msg->header.cookie = (uintptr_t)&cookie;
+        }
+      else if ((dev->flags & RPMSGDEV_NOFRAG_WRITE) != 0)
+        {
+          rpmsg_release_tx_buffer(&dev->ept, msg);
+          ret = -EMSGSIZE;
+          goto out;
         }
       else
         {
@@ -616,7 +630,7 @@ static off_t rpmsgdev_seek(FAR struct file *filep, off_t offset, int whence)
  *
  ****************************************************************************/
 
-static size_t rpmsgdev_ioctl_arglen(int cmd)
+static ssize_t rpmsgdev_ioctl_arglen(int cmd)
 {
   switch (cmd)
     {
@@ -627,8 +641,11 @@ static size_t rpmsgdev_ioctl_arglen(int cmd)
       case FBIOSET_POWER:
       case FBIOGET_POWER:
         return sizeof(int);
+      case TUNSETIFF:
+      case TUNGETIFF:
+        return sizeof(struct ifreq);
       default:
-        return 0;
+        return -ENOTTY;
     }
 }
 
@@ -654,7 +671,7 @@ static int rpmsgdev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   FAR struct rpmsgdev_priv_s *priv;
   FAR struct rpmsgdev_ioctl_s *msg;
   uint32_t space;
-  size_t arglen;
+  ssize_t arglen;
   size_t msglen;
   int ret;
 
@@ -671,6 +688,11 @@ static int rpmsgdev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
   /* Call our internal routine to perform the ioctl */
 
   arglen = rpmsgdev_ioctl_arglen(cmd);
+  if (arglen < 0)
+    {
+      return arglen;
+    }
+
   msglen = sizeof(*msg) + arglen - 1;
 
   msg = rpmsgdev_get_tx_payload_buffer(dev, &space);
@@ -923,7 +945,8 @@ static int rpmsgdev_read_handler(FAR struct rpmsg_endpoint *ept,
       read->iov_len += cookie->result;
     }
 
-  if (cookie->result <= 0 || read->iov_len >= rsp->count)
+  if (header->command == RPMSGDEV_READ_NOFRAG ||
+      cookie->result <= 0 || read->iov_len >= rsp->count)
     {
       rpmsg_post(ept, &cookie->sem);
     }
@@ -1134,6 +1157,9 @@ static int rpmsgdev_ept_cb(FAR struct rpmsg_endpoint *ept,
  *   localpath  - the device path in local cpu, if NULL, the localpath is
  *                same as the remotepath, provide this argument to supoort
  *                custom device path
+ *   flags      - RPMSGDEV_NOFRAG_READ and RPMSGDEV_NOFRAG_WRITE can be set
+ *                to indicates that the read and write data of the device
+ *                cannot be split or aggregated
  *
  * Returned Values:
  *   OK on success; A negated errno value is returned on any failure.
@@ -1141,7 +1167,7 @@ static int rpmsgdev_ept_cb(FAR struct rpmsg_endpoint *ept,
  ****************************************************************************/
 
 int rpmsgdev_register(FAR const char *remotecpu, FAR const char *remotepath,
-                      FAR const char *localpath)
+                      FAR const char *localpath, uint32_t flags)
 {
   FAR struct rpmsgdev_s *dev;
   int ret;
@@ -1163,6 +1189,7 @@ int rpmsgdev_register(FAR const char *remotecpu, FAR const char *remotepath,
 
   dev->remotecpu  = remotecpu;
   dev->remotepath = remotepath;
+  dev->flags      = flags;
 
   nxsem_init(&dev->wait, 0, 0);
 

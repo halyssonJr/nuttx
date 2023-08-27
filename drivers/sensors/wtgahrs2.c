@@ -391,7 +391,7 @@ static bool wtgahrs2_process_data(FAR struct wtgahrs2_dev_s *rtdata,
 static int wtgahrs2_thread(int argc, FAR char *argv[])
 {
   FAR struct wtgahrs2_dev_s *rtdata = (FAR struct wtgahrs2_dev_s *)
-                                      ((uintptr_t)strtoul(argv[1], NULL, 0));
+                                      (uintptr_t)strtoul(argv[1], NULL, 16);
   unsigned char buffer[8 * WTGAHRS2_RSP_LENGTH];
   ssize_t count = 0;
   ssize_t pos;
@@ -433,11 +433,9 @@ int wtgahrs2_initialize(FAR const char *path, int devno)
 {
   FAR struct wtgahrs2_dev_s *rtdata;
   FAR struct wtgahrs2_sensor_s *tmp;
-#ifdef CONFIG_SERIAL_TERMIOS
   struct termios opt;
-#endif
   FAR char *argv[2];
-  char arg1[16];
+  char arg1[32];
   int ret;
 
   if (!path)
@@ -462,13 +460,15 @@ int wtgahrs2_initialize(FAR const char *path, int devno)
       goto open_err;
     }
 
-#ifdef CONFIG_SERIAL_TERMIOS
   file_ioctl(&rtdata->file, TCGETS, &opt);
   cfmakeraw(&opt);
+
+#ifdef CONFIG_SERIAL_TERMIOS
   cfsetispeed(&opt, B115200);
   cfsetospeed(&opt, B115200);
-  file_ioctl(&rtdata->file, TCSETS, &opt);
 #endif
+
+  file_ioctl(&rtdata->file, TCSETS, &opt);
 
   /* Accelerometer register */
 
@@ -542,7 +542,7 @@ int wtgahrs2_initialize(FAR const char *path, int devno)
 
   wtgahrs2_sendcmd(rtdata, g_wtgahrs2_enable_sensor);
 
-  snprintf(arg1, 16, "0x%" PRIxPTR, (uintptr_t)rtdata);
+  snprintf(arg1, sizeof(arg1), "%p", rtdata);
   argv[0] = arg1;
   argv[1] = NULL;
 

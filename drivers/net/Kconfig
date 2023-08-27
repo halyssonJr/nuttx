@@ -20,6 +20,38 @@ menuconfig NETDEVICES
 
 if NETDEVICES
 
+comment "Upper-half Network Device Driver Options"
+
+choice
+	prompt "Netdev poll worker"
+
+config NETDEV_LPWORK_THREAD
+	bool "Use low-priority worker thread to do netdev poll"
+	depends on SCHED_LPWORK
+
+config NETDEV_HPWORK_THREAD
+	bool "Use high-priority worker thread to do netdev poll"
+	depends on SCHED_HPWORK
+
+config NETDEV_WORK_THREAD
+	bool "Use a dedicated work thread to do netdev poll"
+
+endchoice # Netdev poll worker
+
+config NETDEV_WORK_THREAD_PRIORITY
+	int "Priority of work poll thread"
+	default 100
+	depends on NETDEV_WORK_THREAD
+	---help---
+		The priority of work poll thread in netdev.
+
+config NETDEV_WIRELESS_HANDLER
+	bool "Support wireless handler in upper-half driver"
+	default y
+	depends on NETDEV_IOCTL
+	---help---
+		Enable the wireless handler support in upper-half driver.
+
 comment "General Ethernet MAC Driver Options"
 
 config NET_RPMSG_DRV
@@ -72,14 +104,6 @@ config TELNET_MAXLCLIENTS
 		The maximum number of Telnet clients tasks is limited by this
 		number.  This limitation is somewhat artificial since it only
 		determines the size of a fixed-size, preallocated, internal array.
-
-config TELNET_CHARACTER_MODE
-	bool "Character mode"
-	default n
-	---help---
-		The Telnet daemon works in character mode. In this case, the daemon
-		will echo a character which telnet client sent. By default, it works
-		in line mode.
 
 config TELNET_SUPPORT_NAWS
 	bool "Support NAWS (Negotiate About Window Size)"
@@ -397,6 +421,9 @@ config ETH0_PHY_NONE
 config ETH0_PHY_AM79C874
 	bool "AMD Am79C874 PHY"
 
+config ETH0_PHY_AR8031
+	bool "Atheros AR8031 PHY"
+
 config ETH0_PHY_KS8721
 	bool "Micrel KS8721 PHY"
 
@@ -448,6 +475,9 @@ config ETH0_PHY_LAN8742A
 config ETH0_PHY_DM9161
 	bool "Davicom DM9161 PHY"
 
+config ETH0_PHY_YT8512
+	bool "Motorcomm YT8512 PHY"
+
 endchoice
 
 choice
@@ -497,6 +527,9 @@ config ETH1_PHY_LAN8720
 
 config ETH1_PHY_DM9161
 	bool "Davicom DM9161 PHY"
+
+config ETH1_PHY_YT8512
+	bool "Motorcomm YT8512 PHY"
 
 endchoice
 

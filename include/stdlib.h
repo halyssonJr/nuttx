@@ -68,7 +68,7 @@
 #  define environ get_environ_ptr()
 #endif
 
-#if defined(CONFIG_FS_LARGEFILE) && defined(CONFIG_HAVE_LONG_LONG)
+#if defined(CONFIG_FS_LARGEFILE)
 #  define mkstemp64            mkstemp
 #  define mkostemp64           mkostemp
 #  define mkstemps64           mkstemps
@@ -132,6 +132,7 @@ extern "C"
 
 void      srand(unsigned int seed);
 int       rand(void);
+int       rand_r(FAR unsigned int *seedp);
 void      lcong48(FAR unsigned short int param[7]);
 FAR unsigned short int *seed48(FAR unsigned short int seed16v[3]);
 void      srand48(long int seedval);
@@ -285,6 +286,34 @@ FAR void  *bsearch(FAR const void *key, FAR const void *base, size_t nel,
 /* Current program name manipulation */
 
 FAR const char *getprogname(void);
+
+/* Registers a destructor function to be called by exit() */
+
+int __cxa_atexit(CODE void (*func)(FAR void *), FAR void *arg,
+                 FAR void *dso_handle);
+
+#if CONFIG_FORTIFY_SOURCE > 0
+fortify_function(realpath) FAR char *realpath(FAR const char *path,
+                                              FAR char *resolved)
+{
+  FAR char *ret = __real_realpath(path, resolved);
+  if (ret != NULL && resolved != NULL)
+    {
+      size_t len = 1;
+      FAR char *p;
+
+      p = ret;
+      while (*p++ != '\0')
+        {
+          len++;
+        }
+
+      fortify_assert(len <= fortify_size(resolved, 0));
+    }
+
+  return ret;
+}
+#endif
 
 #undef EXTERN
 #if defined(__cplusplus)

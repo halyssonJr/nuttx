@@ -44,6 +44,7 @@
 #include <nuttx/wqueue.h>
 #include <nuttx/net/phy.h>
 #include <nuttx/net/mii.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #if defined(CONFIG_NET_PKT)
@@ -587,11 +588,7 @@
 #define ETH_DMAINT_XMIT_ENABLE    (ETH_DMAINT_NIS | ETH_DMAINT_TI)
 #define ETH_DMAINT_XMIT_DISABLE   (ETH_DMAINT_TI)
 
-#ifdef CONFIG_DEBUG_NET
-#  define ETH_DMAINT_ERROR_ENABLE (ETH_DMAINT_AIS | ETH_DMAINT_ABNORMAL)
-#else
-#  define ETH_DMAINT_ERROR_ENABLE (0)
-#endif
+#define ETH_DMAINT_ERROR_ENABLE (ETH_DMAINT_AIS | ETH_DMAINT_ABNORMAL)
 
 /* Helpers ******************************************************************/
 
@@ -665,9 +662,9 @@ static uint32_t stm32_getreg(uint32_t addr);
 static void stm32_putreg(uint32_t val, uint32_t addr);
 static void stm32_checksetup(void);
 #else
-# define stm32_getreg(addr)      getreg32(addr)
-# define stm32_putreg(val,addr)  putreg32(val,addr)
-# define stm32_checksetup()
+#  define stm32_getreg(addr)     getreg32(addr)
+#  define stm32_putreg(val,addr) putreg32(val,addr)
+#  define stm32_checksetup()
 #endif
 
 /* Free buffer management */
@@ -2027,17 +2024,13 @@ static void stm32_interrupt_work(void *arg)
       stm32_putreg(ETH_DMAINT_NIS, STM32_ETH_DMASR);
     }
 
-  /* Handle error interrupt only if CONFIG_DEBUG_NET is eanbled */
-
-#ifdef CONFIG_DEBUG_NET
-
-  /* Check if there are pending "anormal" interrupts */
+  /* Check if there are pending "abnormal" interrupts */
 
   if ((dmasr & ETH_DMAINT_AIS) != 0)
     {
       /* Just let the user know what happened */
 
-      nerr("ERROR: Abormal event(s): %08x\n", dmasr);
+      nerr("ERROR: Abnormal event(s): %08" PRIx32 "\n", dmasr);
 
       /* Clear all pending abnormal events */
 
@@ -2046,8 +2039,29 @@ static void stm32_interrupt_work(void *arg)
       /* Clear the pending abnormal summary interrupt */
 
       stm32_putreg(ETH_DMAINT_AIS, STM32_ETH_DMASR);
+
+      /* In case of any error that stops the DMA, reset the MAC. */
+
+      if (dmasr & (ETH_DMAINT_FBEI | ETH_DMAINT_RPSI |
+          ETH_DMAINT_TJTI | ETH_DMAINT_TPSI))
+        {
+          /* As per the datasheet's recommendation, the MAC
+           * needs to be reset for all fatal errors. The
+           * scheduled job will take the interface down and
+           * up again.
+           */
+
+          work_queue(ETHWORK, &priv->irqwork, stm32_txtimeout_work, priv, 0);
+
+          /* Interrupts need to remain disabled, no other
+           * processing will take place. After reset
+           * everything will be restored.
+           */
+
+          net_unlock();
+          return;
+        }
     }
-#endif
 
   net_unlock();
 
@@ -2208,11 +2222,9 @@ static int stm32_ifup(struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
@@ -3354,7 +3366,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
 
   /* Set up the MII interface */
 
-#if defined(CONFIG_STM32_MII)
+#  if defined(CONFIG_STM32_MII)
 
   /* Select the MII interface */
 
@@ -3369,7 +3381,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
    *  PLLI2S clock (through a configurable prescaler) on PC9 pin."
    */
 
-# if defined(CONFIG_STM32_MII_MCO1)
+#    if defined(CONFIG_STM32_MII_MCO1)
   /* Configure MC01 to drive the PHY.  Board logic must provide MC01 clocking
    * info.
    */
@@ -3377,7 +3389,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
   stm32_configgpio(GPIO_MCO1);
   stm32_mco1config(BOARD_CFGR_MC01_SOURCE, BOARD_CFGR_MC01_DIVIDER);
 
-# elif defined(CONFIG_STM32_MII_MCO2)
+#    elif defined(CONFIG_STM32_MII_MCO2)
   /* Configure MC02 to drive the PHY.  Board logic must provide MC02 clocking
    * info.
    */
@@ -3385,12 +3397,12 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
   stm32_configgpio(GPIO_MCO2);
   stm32_mco2config(BOARD_CFGR_MC02_SOURCE, BOARD_CFGR_MC02_DIVIDER);
 
-# elif defined(CONFIG_STM32_MII_MCO)
+#    elif defined(CONFIG_STM32_MII_MCO)
   /* Setup MCO pin for alternative usage */
 
   stm32_configgpio(GPIO_MCO);
   stm32_mcoconfig(BOARD_CFGR_MCO_SOURCE);
-# endif
+#    endif
 
   /* MII interface pins (17):
    *
@@ -3416,7 +3428,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
 
   /* Set up the RMII interface. */
 
-#elif defined(CONFIG_STM32_RMII)
+#  elif defined(CONFIG_STM32_RMII)
 
   /* Select the RMII interface */
 
@@ -3431,7 +3443,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
    *  PLLI2S clock (through a configurable prescaler) on PC9 pin."
    */
 
-# if defined(CONFIG_STM32_RMII_MCO1)
+#    if defined(CONFIG_STM32_RMII_MCO1)
   /* Configure MC01 to drive the PHY.  Board logic must provide MC01 clocking
    * info.
    */
@@ -3439,7 +3451,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
   stm32_configgpio(GPIO_MCO1);
   stm32_mco1config(BOARD_CFGR_MC01_SOURCE, BOARD_CFGR_MC01_DIVIDER);
 
-# elif defined(CONFIG_STM32_RMII_MCO2)
+#    elif defined(CONFIG_STM32_RMII_MCO2)
   /* Configure MC02 to drive the PHY.  Board logic must provide MC02 clocking
    * info.
    */
@@ -3447,12 +3459,12 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
   stm32_configgpio(GPIO_MCO2);
   stm32_mco2config(BOARD_CFGR_MC02_SOURCE, BOARD_CFGR_MC02_DIVIDER);
 
-# elif defined(CONFIG_STM32_RMII_MCO)
+#    elif defined(CONFIG_STM32_RMII_MCO)
   /* Setup MCO pin for alternative usage */
 
   stm32_configgpio(GPIO_MCO);
   stm32_mcoconfig(BOARD_CFGR_MCO_SOURCE);
-# endif
+#    endif
 
   /* RMII interface pins (7):
    *
@@ -3468,7 +3480,7 @@ static inline void stm32_ethgpioconfig(struct stm32_ethmac_s *priv)
   stm32_configgpio(GPIO_ETH_RMII_TXD1);
   stm32_configgpio(GPIO_ETH_RMII_TX_EN);
 
-#endif
+#  endif
 #endif
 
 #ifdef CONFIG_STM32_ETH_PTP

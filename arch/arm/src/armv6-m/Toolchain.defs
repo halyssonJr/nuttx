@@ -23,12 +23,14 @@
 TOOLCHAIN_MTUNE  := -mcpu=cortex-m0 -mthumb
 TOOLCHAIN_MFLOAT := -mfloat-abi=soft
 
-ZARCHCPUFLAGS := -mcpu=cortex_m0
+LLVM_ARCHTYPE := thumbv6m
+LLVM_ABITYPE  := eabi
+LLVM_CPUTYPE  := cortex-m0
 
 # Clang Configuration files
 
 ifeq ($(CONFIG_ARM_TOOLCHAIN_CLANG),y)
-  TOOLCHAIN_MARCH := --config armv6m_soft_nofp_nosys
+  TOOLCHAIN_CLANG_CONFIG = --config armv6m_soft_nofp
 else ifeq ($(CONFIG_ARM_TOOLCHAIN_ARMCLANG),y)
   LDFLAGS += --cpu=Cortex-M0
 endif

@@ -31,7 +31,7 @@
 #include <debug.h>
 
 #include <nuttx/binfmt/elf.h>
-#include <nuttx/binfmt/symtab.h>
+#include <nuttx/symtab.h>
 
 #include "libelf.h"
 
@@ -80,6 +80,17 @@ static int elf_symname(FAR struct elf_loadinfo_s *loadinfo,
     {
       berr("Symbol has no name\n");
       return -ESRCH;
+    }
+
+  /* Allocate an I/O buffer.  This buffer is used by elf_symname() to
+   * accumulate the variable length symbol name.
+   */
+
+  ret = elf_allocbuffer(loadinfo);
+  if (ret < 0)
+    {
+      berr("elf_allocbuffer failed: %d\n", ret);
+      return ret;
     }
 
   offset = loadinfo->shdr[loadinfo->strtabidx].sh_offset + sym->st_name;

@@ -114,7 +114,7 @@ static int  ads7843e_poll(FAR struct file *filep, struct pollfd *fds,
 
 /* This the vtable that supports the character driver interface */
 
-static const struct file_operations ads7843e_fops =
+static const struct file_operations g_ads7843e_fops =
 {
   ads7843e_open,    /* open */
   ads7843e_close,   /* close */
@@ -372,7 +372,6 @@ static int ads7843e_waitsample(FAR struct ads7843e_dev_s *priv,
    * from getting control while we muck with the semaphores.
    */
 
-  sched_lock();
   flags = enter_critical_section();
 
   /* Now release the semaphore that manages mutually exclusive access to
@@ -418,14 +417,6 @@ errout:
    */
 
   leave_critical_section(flags);
-
-  /* Restore pre-emption.  We might get suspended here but that is okay
-   * because we already have our sample.  Note:  this means that if there
-   * were two threads reading from the ADS7843E for some reason, the data
-   * might be read out of order.
-   */
-
-  sched_unlock();
   return ret;
 }
 
@@ -1177,7 +1168,7 @@ int ads7843e_register(FAR struct spi_dev_s *spi,
   snprintf(devname, sizeof(devname), DEV_FORMAT, minor);
   iinfo("Registering %s\n", devname);
 
-  ret = register_driver(devname, &ads7843e_fops, 0666, priv);
+  ret = register_driver(devname, &g_ads7843e_fops, 0666, priv);
   if (ret < 0)
     {
       ierr("ERROR: register_driver() failed: %d\n", ret);

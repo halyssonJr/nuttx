@@ -117,7 +117,6 @@ struct pollfd
 
   /* Non-standard fields used internally by NuttX. */
 
-  FAR void    *ptr;     /* The psock or file being polled */
   FAR void    *arg;     /* The poll callback function argument */
   pollcb_t     cb;      /* The poll callback function */
   FAR void    *priv;    /* For use by drivers */
@@ -149,6 +148,23 @@ int ppoll(FAR struct pollfd *fds, nfds_t nfds,
 int poll_fdsetup(int fd, FAR struct pollfd *fds, bool setup);
 void poll_default_cb(FAR struct pollfd *fds);
 void poll_notify(FAR struct pollfd **afds, int nfds, pollevent_t eventset);
+
+#if CONFIG_FORTIFY_SOURCE > 0
+fortify_function(poll) int poll(FAR struct pollfd *fds,
+                                nfds_t nfds, int timeout)
+{
+  fortify_assert(nfds <= fortify_size(fds, 0) / sizeof(struct pollfd));
+  return __real_poll(fds, nfds, timeout);
+}
+
+fortify_function(ppoll) int ppoll(FAR struct pollfd *fds, nfds_t nfds,
+                                  FAR const struct timespec *timeout_ts,
+                                  FAR const sigset_t *sigmask)
+{
+  fortify_assert(nfds <= fortify_size(fds, 0) / sizeof(struct pollfd));
+  return __real_ppoll(fds, nfds, timeout_ts, sigmask);
+}
+#endif
 
 #undef EXTERN
 #if defined(__cplusplus)

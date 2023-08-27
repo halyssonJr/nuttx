@@ -66,7 +66,7 @@ static int lcddev_ioctl(FAR struct file *filep, int cmd,
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations lcddev_fops =
+static const struct file_operations g_lcddev_fops =
 {
   NULL,         /* open */
   NULL,         /* close */
@@ -272,8 +272,37 @@ static int lcddev_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         *((FAR int *)arg) = priv->lcd_ptr->getframerate(priv->lcd_ptr);
       }
       break;
+    case LCDDEVIO_GETAREAALIGN:
+      {
+        FAR struct lcddev_area_align_s *area_align =
+            (FAR struct lcddev_area_align_s *)arg;
+
+        if (priv->lcd_ptr->getareaalign == NULL)
+          {
+            area_align->row_start_align = 1;
+            area_align->height_align    = 1;
+            area_align->col_start_align = 1;
+            area_align->width_align     = 1;
+            area_align->buf_align       = sizeof(uintptr_t);
+          }
+        else
+          {
+            ret = priv->lcd_ptr->getareaalign(priv->lcd_ptr, area_align);
+          }
+      }
+      break;
     default:
-      ret = -EINVAL;
+      {
+        if (priv->lcd_ptr->ioctl)
+          {
+            ret = priv->lcd_ptr->ioctl(priv->lcd_ptr, cmd, arg);
+          }
+        else
+          {
+            gerr("ERROR: Unsupported IOCTL command: %d\n", cmd);
+            ret = -ENOTTY;
+          }
+      }
       break;
     }
 
@@ -315,6 +344,12 @@ int lcddev_register(int devno)
     }
 
   priv->lcd_ptr = board_lcd_getdev(devno);
+  if (!priv->lcd_ptr)
+    {
+      ret = -ENODEV;
+      goto err;
+    }
+
   ret = priv->lcd_ptr->getplaneinfo(priv->lcd_ptr, 0, &priv->planeinfo);
   if (ret < 0)
     {
@@ -322,7 +357,7 @@ int lcddev_register(int devno)
     }
 
   snprintf(devname, sizeof(devname), "/dev/lcd%i", devno);
-  ret = register_driver(devname, &lcddev_fops, 0666, priv);
+  ret = register_driver(devname, &g_lcddev_fops, 0666, priv);
   if (ret < 0)
     {
       goto err;

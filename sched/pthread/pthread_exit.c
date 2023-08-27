@@ -63,18 +63,18 @@
 void nx_pthread_exit(FAR void *exit_value)
 {
   FAR struct tcb_s *tcb = this_task();
-  sigset_t set = ALL_SIGNAL_SET;
+  sigset_t set;
   int status;
 
   sinfo("exit_value=%p\n", exit_value);
 
   DEBUGASSERT(tcb != NULL);
-  DEBUGASSERT((tcb->flags & TCB_FLAG_TTYPE_MASK) == TCB_FLAG_TTYPE_PTHREAD);
 
   /* Block any signal actions that would awaken us while were
    * are performing the JOIN handshake.
    */
 
+  sigfillset(&set);
   nxsig_procmask(SIG_SETMASK, &set, NULL);
 
   /* Complete pending join operations */

@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 #include <nuttx/cache.h>
 #include <nuttx/irq.h>
+#include <sys/param.h>
 
 #include "cp15_cacheops.h"
 #include "barriers.h"
@@ -35,6 +36,58 @@
  ****************************************************************************/
 
 #ifdef CONFIG_ARCH_ICACHE
+
+/****************************************************************************
+ * Name: up_get_icache_linesize
+ *
+ * Description:
+ *   Get icache linesize
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Cache line size
+ *
+ ****************************************************************************/
+
+size_t up_get_icache_linesize(void)
+{
+  static uint32_t clsize;
+
+  if (clsize == 0)
+    {
+      clsize = MAX(cp15_icache_linesize(), l2cc_linesize());
+    }
+
+  return clsize;
+}
+
+/****************************************************************************
+ * Name: up_get_icache_size
+ *
+ * Description:
+ *   Get icache size
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Cache size
+ *
+ ****************************************************************************/
+
+size_t up_get_icache_size(void)
+{
+  static uint32_t csize;
+
+  if (csize == 0)
+    {
+      csize = MAX(cp15_icache_size(), l2cc_size());
+    }
+
+  return csize;
+}
 
 /****************************************************************************
  * Name: up_invalidate_icache_all
@@ -120,6 +173,58 @@ void up_disable_icache(void)
 #ifdef CONFIG_ARCH_DCACHE
 
 /****************************************************************************
+ * Name: up_get_dcache_linesize
+ *
+ * Description:
+ *   Get dcache linesize
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Cache line size
+ *
+ ****************************************************************************/
+
+size_t up_get_dcache_linesize(void)
+{
+  static uint32_t clsize;
+
+  if (clsize == 0)
+    {
+      clsize = MAX(cp15_dcache_linesize(), l2cc_linesize());
+    }
+
+  return clsize;
+}
+
+/****************************************************************************
+ * Name: up_get_dcache_size
+ *
+ * Description:
+ *   Get dcache size
+ *
+ * Input Parameters:
+ *   None
+ *
+ * Returned Value:
+ *   Cache size
+ *
+ ****************************************************************************/
+
+size_t up_get_dcache_size(void)
+{
+  static uint32_t csize;
+
+  if (csize == 0)
+    {
+      csize = MAX(cp15_dcache_size(), l2cc_size());
+    }
+
+  return csize;
+}
+
+/****************************************************************************
  * Name: up_invalidate_dcache
  *
  * Description:
@@ -199,7 +304,7 @@ void up_invalidate_dcache_all(void)
 
 void up_clean_dcache(uintptr_t start, uintptr_t end)
 {
-  if ((end - start) < cp15_cache_size())
+  if ((end - start) < cp15_dcache_size())
     {
       cp15_clean_dcache(start, end);
     }
@@ -263,7 +368,7 @@ void up_clean_dcache_all(void)
 
 void up_flush_dcache(uintptr_t start, uintptr_t end)
 {
-  if ((end - start) < cp15_cache_size())
+  if ((end - start) < cp15_dcache_size())
     {
       cp15_flush_dcache(start, end);
     }

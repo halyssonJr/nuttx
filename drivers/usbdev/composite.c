@@ -40,8 +40,6 @@
 
 #include "composite.h"
 
-#ifdef CONFIG_USBDEV_COMPOSITE
-
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -74,10 +72,6 @@ static int     composite_classsetup(FAR struct composite_dev_s *priv,
                  FAR struct usbdev_s *dev,
                  FAR const struct usb_ctrlreq_s *ctrl, FAR uint8_t *dataout,
                  size_t outlen);
-static struct usbdev_req_s *composite_allocreq(FAR struct usbdev_ep_s *ep,
-                 uint16_t len);
-static void    composite_freereq(FAR struct usbdev_ep_s *ep,
-                 FAR struct usbdev_req_s *req);
 
 /* USB class device *********************************************************/
 
@@ -111,16 +105,6 @@ static const struct usbdevclass_driverops_s g_driverops =
   composite_suspend,    /* suspend */
   composite_resume,     /* resume */
 };
-
-/****************************************************************************
- * Public Data
- ****************************************************************************/
-
-const char g_compvendorstr[]  = CONFIG_COMPOSITE_VENDORSTR;
-const char g_compproductstr[] = CONFIG_COMPOSITE_PRODUCTSTR;
-#ifndef CONFIG_COMPOSITE_BOARD_SERIALSTR
-const char g_compserialstr[]  = CONFIG_COMPOSITE_SERIALSTR;
-#endif
 
 /****************************************************************************
  * Private Functions
@@ -282,56 +266,6 @@ static int composite_msftdescriptor(FAR struct composite_dev_s *priv,
 #endif
 
 /****************************************************************************
- * Name: composite_allocreq
- *
- * Description:
- *   Allocate a request instance along with its buffer
- *
- ****************************************************************************/
-
-static struct usbdev_req_s *composite_allocreq(FAR struct usbdev_ep_s *ep,
-                                               uint16_t len)
-{
-  FAR struct usbdev_req_s *req;
-
-  req = EP_ALLOCREQ(ep);
-  if (req != NULL)
-    {
-      req->len = len;
-      req->buf = EP_ALLOCBUFFER(ep, len);
-      if (!req->buf)
-        {
-          EP_FREEREQ(ep, req);
-          req = NULL;
-        }
-    }
-
-  return req;
-}
-
-/****************************************************************************
- * Name: composite_freereq
- *
- * Description:
- *   Free a request instance along with its buffer
- *
- ****************************************************************************/
-
-static void composite_freereq(FAR struct usbdev_ep_s *ep,
-                              FAR struct usbdev_req_s *req)
-{
-  if (ep != NULL && req != NULL)
-    {
-      if (req->buf != NULL)
-        {
-          EP_FREEBUFFER(ep, req->buf);
-        }
-
-      EP_FREEREQ(ep, req);
-    }
-}
-
-/****************************************************************************
  * USB Class Driver Methods
  ****************************************************************************/
 
@@ -366,7 +300,7 @@ static int composite_bind(FAR struct usbdevclass_driver_s *driver,
 
   /* Preallocate one control request */
 
-  priv->ctrlreq = composite_allocreq(dev->ep0, priv->cfgdescsize);
+  priv->ctrlreq = usbdev_allocreq(dev->ep0, priv->cfgdescsize);
   if (priv->ctrlreq == NULL)
     {
       usbtrace(TRACE_CLSERROR(USBCOMPOSITE_TRACEERR_ALLOCCTRLREQ), 0);
@@ -460,7 +394,7 @@ static void composite_unbind(FAR struct usbdevclass_driver_s *driver,
       priv->config = COMPOSITE_CONFIGIDNONE;
       if (priv->ctrlreq != NULL)
         {
-          composite_freereq(dev->ep0, priv->ctrlreq);
+          usbdev_freereq(dev->ep0, priv->ctrlreq);
           priv->ctrlreq = NULL;
         }
 
@@ -566,7 +500,7 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
                 {
 #ifdef CONFIG_USBDEV_DUALSPEED
                     ret = composite_mkcfgdesc(priv, ctrlreq->buf, dev->speed,
-                                            ctrl->value[1]);
+                                              ctrl->value[1]);
 #else
                     ret = composite_mkcfgdesc(priv, ctrlreq->buf);
 #endif
@@ -581,6 +515,7 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
                   FAR struct usb_strdesc_s *buf =
                              (FAR struct usb_strdesc_s *)ctrlreq->buf;
 
+#ifdef CONFIG_USBDEV_COMPOSITE
                   if (strid < COMPOSITE_NSTRIDS)
                     {
                       ret = composite_mkstrdesc(strid, buf);
@@ -596,7 +531,7 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
                       static const uint8_t msft_response[16] =
                       {
                         'M', 0, 'S', 0, 'F', 0, 'T', 0, '1', 0, '0', 0,
-                        '0', 0, 0xff, 0
+                        '0', 0, USB_REQ_GETMSFTOSDESCRIPTOR, 0
                       };
 
                       buf->len = 18;
@@ -625,6 +560,9 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
                             }
                         }
                     }
+#else
+                  ret = composite_mkstrdesc(strid, buf);
+#endif
                 }
                 break;
 
@@ -645,6 +583,14 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
               {
                 int i;
 
+                if (priv->config == value)
+                  {
+                    /* Already configured -- Do nothing */
+
+                    ret = OK;
+                    break;
+                  }
+
                 /* Save the configuration and inform the constituent
                  * classes
                  */
@@ -658,7 +604,6 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
                                       outlen);
                   }
 
-                dispatched = true;
                 priv->config = value;
               }
           }
@@ -677,7 +622,7 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
         case USB_REQ_SETINTERFACE:
           {
             if (ctrl->type == USB_REQ_RECIPIENT_INTERFACE &&
-                priv->config == COMPOSITE_CONFIGID)
+                priv->config != COMPOSITE_CONFIGIDNONE)
               {
                 ret = composite_classsetup(priv, dev, ctrl, dataout, outlen);
                 dispatched = true;
@@ -735,7 +680,12 @@ static int composite_setup(FAR struct usbdevclass_driver_s *driver,
       /* Setup the request */
 
       ctrlreq->len   = MIN(len, ret);
-      ctrlreq->flags = USBDEV_REQFLAGS_NULLPKT;
+
+      /* Only when ret is less than len do zero length packet
+       * need to be sent
+       */
+
+      ctrlreq->flags = ret < len ? USBDEV_REQFLAGS_NULLPKT : 0;
 
       /* And submit the request to the USB controller driver */
 
@@ -796,13 +746,13 @@ static void composite_disconnect(FAR struct usbdevclass_driver_s *driver,
    */
 
   flags = enter_critical_section();
-  priv->config = COMPOSITE_CONFIGIDNONE;
 
   for (i = 0; i < priv->ndevices; i++)
     {
       CLASS_DISCONNECT(priv->device[i].dev, dev);
     }
 
+  priv->config = COMPOSITE_CONFIGIDNONE;
   leave_critical_section(flags);
 
   /* Perform the soft connect function so that we will we can be
@@ -1007,7 +957,7 @@ FAR void *composite_initialize(uint8_t ndevices,
   if (ret < 0)
     {
       usbtrace(TRACE_CLSERROR(USBCOMPOSITE_TRACEERR_DEVREGISTER),
-                             (uint16_t)-ret);
+               (uint16_t)-ret);
       goto errout_with_alloc;
     }
 
@@ -1049,6 +999,11 @@ void composite_uninitialize(FAR void *handle)
 
   priv = &alloc->dev;
 
+  for (i = 0; i < priv->ndevices; i++)
+    {
+      priv->device[i].compdesc.uninitialize(priv->device[i].dev);
+    }
+
   /* Then unregister and destroy the composite class */
 
   usbdev_unregister(&alloc->drvr.drvr);
@@ -1082,14 +1037,27 @@ void composite_uninitialize(FAR void *handle)
 
 int composite_ep0submit(FAR struct usbdevclass_driver_s *driver,
                         FAR struct usbdev_s *dev,
-                        FAR struct usbdev_req_s *ctrlreq)
+                        FAR struct usbdev_req_s *ctrlreq,
+                        FAR const struct usb_ctrlreq_s *ctrl)
 {
-  /* This function is not really necessary in the current design.  However,
-   * keeping this will provide us a little flexibility in the future if
-   * it becomes necessary to manage the completion callbacks.
-   */
+  bool ep0submit = true;
 
-  return EP_SUBMIT(dev->ep0, ctrlreq);
+  /* Some EP0 responses must be send only once from the composite class */
+
+  if ((ctrl->type & USB_REQ_TYPE_MASK) == USB_REQ_TYPE_STANDARD)
+    {
+      if (ctrl->req == USB_REQ_SETCONFIGURATION)
+        {
+          ep0submit = false;
+        }
+    }
+
+  if (ep0submit)
+    {
+      return EP_SUBMIT(dev->ep0, ctrlreq);
+    }
+  else
+    {
+      return 0;
+    }
 }
-
-#endif /* CONFIG_USBDEV_COMPOSITE */

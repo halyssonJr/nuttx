@@ -36,7 +36,7 @@
 #include <errno.h>
 #include <debug.h>
 
-#include <nuttx/kmalloc.h>
+#include <nuttx/lib/lib.h>
 #include <nuttx/mutex.h>
 #include <nuttx/fs/fs.h>
 #include <nuttx/fs/fat.h>
@@ -134,7 +134,7 @@ static mutex_t g_lock = NXMUTEX_INITIALIZER;
  * with any compiler.
  */
 
-const struct mountpt_operations hostfs_operations =
+const struct mountpt_operations g_hostfs_operations =
 {
   hostfs_open,          /* open */
   hostfs_close,         /* close */
@@ -228,7 +228,7 @@ static void hostfs_mkpath(FAR struct hostfs_mountpt_s  *fs,
 
   if (depth >= 0)
     {
-      strncat(path, &relpath[first], pathlen - strlen(path) - 1);
+      strlcat(path, &relpath[first], pathlen - strlen(path));
     }
 }
 
@@ -296,7 +296,7 @@ static int hostfs_open(FAR struct file *filep, FAR const char *relpath,
 
   if ((oflags & (O_APPEND | O_WRONLY)) == (O_APPEND | O_WRONLY))
     {
-      ret = host_lseek(hf->fd, 0, SEEK_END);
+      ret = host_lseek(hf->fd, 0, 0, SEEK_END);
       if (ret >= 0)
         {
           filep->f_pos = ret;
@@ -557,7 +557,7 @@ static off_t hostfs_seek(FAR struct file *filep, off_t offset, int whence)
 
   /* Call our internal routine to perform the seek */
 
-  ret = host_lseek(hf->fd, offset, whence);
+  ret = host_lseek(hf->fd, filep->f_pos, offset, whence);
   if (ret >= 0)
     {
       filep->f_pos = ret;
@@ -1002,7 +1002,7 @@ static int hostfs_rewinddir(FAR struct inode *mountpt,
 static int hostfs_bind(FAR struct inode *blkdriver, FAR const void *data,
                        FAR void **handle)
 {
-  FAR struct hostfs_mountpt_s  *fs;
+  FAR struct hostfs_mountpt_s *fs;
   FAR char *options;
   char *saveptr;
   char *ptr;
@@ -1048,7 +1048,7 @@ static int hostfs_bind(FAR struct inode *blkdriver, FAR const void *data,
       ptr = strtok_r(NULL, ",", &saveptr);
     }
 
-  kmm_free(options);
+  lib_free(options);
 
   /* Take the lock for the mount */
 
@@ -1080,7 +1080,7 @@ static int hostfs_bind(FAR struct inode *blkdriver, FAR const void *data,
 
   if (fs->fs_root[len - 1] != '/')
     {
-      strcat(fs->fs_root, "/");
+      strlcat(fs->fs_root, "/", sizeof(fs->fs_root));
     }
 
   *handle = (FAR void *)fs;
@@ -1161,7 +1161,6 @@ static int hostfs_statfs(FAR struct inode *mountpt, FAR struct statfs *buf)
 
   /* Call the host fs to perform the statfs */
 
-  memset(buf, 0, sizeof(struct statfs));
   ret = host_statfs(fs->fs_root, buf);
   buf->f_type = HOSTFS_MAGIC;
 

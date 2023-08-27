@@ -26,7 +26,6 @@
 
 #include <assert.h>
 #include <string.h>
-#include <malloc.h>
 #include <stdbool.h>
 
 #include <nuttx/arch.h>
@@ -381,11 +380,13 @@ void mm_extend(struct mm_heap_s *heap, void *mem, size_t size,
  *
  ****************************************************************************/
 
-int mm_mallinfo(struct mm_heap_s *heap, struct mallinfo *info)
+struct mallinfo mm_mallinfo(struct mm_heap_s *heap)
 {
-  memset(info, 0, sizeof(struct mallinfo));
-  host_mallinfo(&info->aordblks, &info->uordblks);
-  return 0;
+  struct mallinfo info;
+
+  memset(&info, 0, sizeof(struct mallinfo));
+  host_mallinfo(&info.aordblks, &info.uordblks);
+  return info;
 }
 
 /****************************************************************************
@@ -396,11 +397,15 @@ int mm_mallinfo(struct mm_heap_s *heap, struct mallinfo *info)
  *
  ****************************************************************************/
 
-int mm_mallinfo_task(struct mm_heap_s *heap, struct mallinfo_task *info)
+struct mallinfo_task mm_mallinfo_task(struct mm_heap_s *heap,
+                                      const struct malltask *task)
 {
-  info->aordblks = 0;
-  info->uordblks = 0;
-  return 0;
+  struct mallinfo_task info =
+    {
+      0, 0
+    };
+
+  return info;
 }
 
 /****************************************************************************
@@ -411,7 +416,7 @@ int mm_mallinfo_task(struct mm_heap_s *heap, struct mallinfo_task *info)
  *
  ****************************************************************************/
 
-void mm_memdump(struct mm_heap_s *heap, pid_t pid)
+void mm_memdump(struct mm_heap_s *heap, const struct mm_memdump_s *dump)
 {
 }
 

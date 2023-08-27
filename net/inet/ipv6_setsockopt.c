@@ -32,11 +32,13 @@
 
 #include <nuttx/net/net.h>
 
+#include "netdev/netdev.h"
 #include "mld/mld.h"
 #include "inet/inet.h"
+#include "socket/socket.h"
 #include "udp/udp.h"
 
-#ifdef CONFIG_NET_IPv6
+#if defined(CONFIG_NET_IPv6) && defined(CONFIG_NET_SOCKOPTS)
 
 /****************************************************************************
  * Public Functions
@@ -73,6 +75,11 @@ int ipv6_setsockopt(FAR struct socket *psock, int option,
 
   ninfo("option: %d\n", option);
 
+  if (value == NULL || value_len == 0)
+    {
+      return -EINVAL;
+    }
+
   net_lock();
   switch (option)
     {
@@ -81,91 +88,103 @@ int ipv6_setsockopt(FAR struct socket *psock, int option,
       /* Handle MLD-related socket options */
 
       case IPV6_JOIN_GROUP:       /* Join a multicast group */
-        {
-          FAR const struct ipv6_mreq *mrec ;
-
-          mrec = (FAR const struct ipv6_mreq *)value;
-          if (mrec == NULL)
-            {
-              ret = -EINVAL;
-            }
-          else
-            {
-              ret = mld_joingroup(mrec);
-            }
-        }
+        ret = mld_joingroup(value);
         break;
 
       case IPV6_LEAVE_GROUP:      /* Quit a multicast group */
-        {
-          FAR const struct ipv6_mreq *mrec ;
+        ret = mld_leavegroup(value);
+        break;
 
-          mrec = (FAR const struct ipv6_mreq *)value;
-          if (mrec == NULL)
-            {
-              ret = -EINVAL;
-            }
-          else
-            {
-              ret = mld_leavegroup(mrec);
-            }
+      case IPV6_MULTICAST_HOPS:   /* Multicast hop limit */
+        {
+          FAR struct socket_conn_s *conn = psock->s_conn;
+
+          conn->ttl = (value_len >= sizeof(int)) ?
+                      *(FAR int *)value : (int)*(FAR unsigned char *)value;
+          ret = OK;
         }
         break;
 
-      /* The following IPv6 socket options are defined, but not implemented */
-
-      case IPV6_MULTICAST_HOPS:   /* Multicast hop limit */
       case IPV6_MULTICAST_IF:     /* Interface to use for outgoing multicast
                                    * packets */
+#ifdef NET_UDP_HAVE_STACK
+      {
+        FAR struct net_driver_s *dev;
+        FAR struct udp_conn_s *conn = psock->s_conn;
+        int ifindex = *(FAR int *)value;
+
+        if (ifindex > 0)
+          {
+            dev = netdev_findbyindex(ifindex);
+            if (dev == NULL)
+              {
+                ret = -ENODEV;
+                break;
+              }
+
+#ifdef CONFIG_NET_BINDTODEVICE
+            if (conn->sconn.s_boundto &&
+                ifindex != conn->sconn.s_boundto)
+              {
+                ret = -EINVAL;
+                break;
+              }
+#endif
+          }
+
+        conn->mreq.imr_ifindex = ifindex;
+
+        ret = OK;
+        break;
+      }
+#endif
+
+      /* The following IPv6 socket options are defined, but not implemented */
+
       case IPV6_MULTICAST_LOOP:   /* Multicast packets are delivered back to
                                    * the local application */
 #endif
-      case IPV6_UNICAST_HOPS:     /* Unicast hop limit */
       case IPV6_V6ONLY:           /* Restrict AF_INET6 socket to IPv6
                                    * communications only */
         nwarn("WARNING: Unimplemented IPv6 option: %d\n", option);
         ret = -ENOSYS;
         break;
 
-#if defined(CONFIG_NET_UDP) && !defined(CONFIG_NET_UDP_NO_STACK)
-      case IPV6_PKTINFO:
-      case IPV6_RECVPKTINFO:
+      case IPV6_UNICAST_HOPS:     /* Unicast hop limit */
         {
-          FAR struct udp_conn_s *conn;
-          int enable;
+          FAR struct socket_conn_s *conn = psock->s_conn;
 
-          if (psock->s_type != SOCK_DGRAM ||
-              value == NULL || value_len == 0)
-            {
-              ret = -EINVAL;
-              break;
-            }
+          conn->ttl = (value_len >= sizeof(int)) ?
+                      *(FAR int *)value : (int)*(FAR unsigned char *)value;
+          ret = OK;
+        }
+        break;
 
-          enable = (value_len >= sizeof(int)) ?
-            *(FAR int *)value : (int)*(FAR unsigned char *)value;
-          conn = (FAR struct udp_conn_s *)psock->s_conn;
+      case IPV6_RECVPKTINFO:
+      case IPV6_RECVHOPLIMIT:
+        {
+          FAR struct socket_conn_s *conn = psock->s_conn;
+          int enable = (value_len >= sizeof(int)) ?
+                       *(FAR int *)value : (int)*(FAR unsigned char *)value;
+
           if (enable)
             {
-              conn->flags |= _UDP_FLAG_PKTINFO;
+              _SO_SETOPT(conn->s_options, option);
             }
           else
             {
-              conn->flags &= ~_UDP_FLAG_PKTINFO;
+              _SO_CLROPT(conn->s_options, option);
             }
 
           ret = OK;
         }
         break;
-#endif
 
       case IPV6_TCLASS:
         {
-          FAR struct socket_conn_s *conn =
-                           (FAR struct socket_conn_s *)psock->s_conn;
-          int tclass;
-
-          tclass = (value_len >= sizeof(int)) ?
-                   *(FAR int *)value : (int)*(FAR unsigned char *)value;
+          FAR struct socket_conn_s *conn = psock->s_conn;
+          int tclass = (value_len >= sizeof(int)) ?
+                       *(FAR int *)value : (int)*(FAR unsigned char *)value;
 
           /* According to RFC3542 6.5, the interpretation of the integer
            * traffic class value is:

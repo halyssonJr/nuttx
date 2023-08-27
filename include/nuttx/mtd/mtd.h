@@ -48,32 +48,34 @@
  * replace with BIOC_XIPBASE, BIOC_FLUSH and BIOC_PARTINFO instead.
  */
 
-#define MTDIOC_GEOMETRY   _MTDIOC(0x0001) /* IN:  Pointer to write-able struct
-                                           *      mtd_geometry_s in which to receive
-                                           *      receive geometry data (see mtd.h)
-                                           * OUT: Geometry structure is populated
-                                           *      with data for the MTD */
-#define MTDIOC_BULKERASE  _MTDIOC(0x0003) /* IN:  None
-                                           * OUT: None */
-#define MTDIOC_PROTECT    _MTDIOC(0x0004) /* IN:  Pointer to read-able struct
-                                           *      mtd_protects_s that provides
-                                           *      the region to protect.
-                                           * OUT: None */
-#define MTDIOC_UNPROTECT  _MTDIOC(0x0005) /* IN:  Pointer to read-able struct
-                                           *      mtd_protects_s that provides
-                                           *      the region to un-protect.
-                                           * OUT: None */
-#define MTDIOC_SETSPEED   _MTDIOC(0x0006) /* IN:  New bus speed in Hz
-                                           * OUT: None */
-#define MTDIOC_EXTENDED   _MTDIOC(0x0007) /* IN:  unsigned long
-                                           *      0=Use normal memory region
-                                           *      1=Use alternate/extended memory
-                                           * OUT: None */
-#define MTDIOC_ECCSTATUS  _MTDIOC(0x0008) /* IN:  Pointer to uint8_t
-                                           * OUT: ECC status */
-#define MTDIOC_ERASESTATE _MTDIOC(0x000a) /* IN:  Pointer to uint8_t
-                                           * OUT: Byte value that represents the
-                                           *      erased state of the MTD cell */
+#define MTDIOC_GEOMETRY     _MTDIOC(0x0001) /* IN:  Pointer to write-able struct
+                                             *      mtd_geometry_s in which to receive
+                                             *      receive geometry data (see mtd.h)
+                                             * OUT: Geometry structure is populated
+                                             *      with data for the MTD */
+#define MTDIOC_BULKERASE    _MTDIOC(0x0003) /* IN:  None
+                                            * OUT: None */
+#define MTDIOC_PROTECT      _MTDIOC(0x0004) /* IN:  Pointer to read-able struct
+                                             *      mtd_protects_s that provides
+                                             *      the region to protect.
+                                             * OUT: None */
+#define MTDIOC_UNPROTECT    _MTDIOC(0x0005) /* IN:  Pointer to read-able struct
+                                             *      mtd_protects_s that provides
+                                             *      the region to un-protect.
+                                             * OUT: None */
+#define MTDIOC_SETSPEED     _MTDIOC(0x0006) /* IN:  New bus speed in Hz
+                                             * OUT: None */
+#define MTDIOC_EXTENDED     _MTDIOC(0x0007) /* IN:  unsigned long
+                                             *      0=Use normal memory region
+                                             *      1=Use alternate/extended memory
+                                             * OUT: None */
+#define MTDIOC_ECCSTATUS    _MTDIOC(0x0008) /* IN:  Pointer to uint8_t
+                                             * OUT: ECC status */
+#define MTDIOC_ERASESTATE   _MTDIOC(0x000a) /* IN:  Pointer to uint8_t
+                                             * OUT: Byte value that represents the
+                                             *      erased state of the MTD cell */
+#define MTDIOC_ERASESECTORS _MTDIOC(0x000c) /* IN: Pointer to mtd_erase_s structure
+                                             * OUT: None */
 
 /* Macros to hide implementation */
 
@@ -83,6 +85,8 @@
 #define MTD_READ(d,s,n,b)  ((d)->read    ? (d)->read(d,s,n,b)   : (-ENOSYS))
 #define MTD_WRITE(d,s,n,b) ((d)->write   ? (d)->write(d,s,n,b)  : (-ENOSYS))
 #define MTD_IOCTL(d,c,a)   ((d)->ioctl   ? (d)->ioctl(d,c,a)    : (-ENOSYS))
+#define MTD_ISBAD(d,b)     ((d)->isbad   ? (d)->isbad(d,b)      : (-ENOSYS))
+#define MTD_MARKBAD(d,b)   ((d)->markbad ? (d)->markbad(d,b)    : (-ENOSYS))
 
 /* If any of the low-level device drivers declare they want sub-sector erase
  * support, then define MTD_SUBSECTOR_ERASE.
@@ -137,6 +141,14 @@ struct mtd_byte_write_s
   const uint8_t *buffer;  /* Pointer to the data to write */
 };
 
+/* This structure describes a range of erase sectors to be erased. */
+
+struct mtd_erase_s
+{
+  uint32_t startblock;  /* First block to be erased */
+  uint32_t nblocks;     /* Number of blocks to be erased */
+};
+
 /* This structure defines the interface to a simple memory technology device.
  * It will likely need to be extended in the future to support more complex
  * devices.
@@ -184,6 +196,11 @@ struct mtd_dev_s
    */
 
   int (*ioctl)(FAR struct mtd_dev_s *dev, int cmd, unsigned long arg);
+
+  /* Check/Mark bad block for the specified block number */
+
+  int (*isbad)(FAR struct mtd_dev_s *dev, off_t block);
+  int (*markbad)(FAR struct mtd_dev_s *dev, off_t block);
 
   /* Name of this MTD device */
 
@@ -412,7 +429,8 @@ FAR struct mtd_dev_s *at25_initialize(FAR struct spi_dev_s *dev);
  *
  ****************************************************************************/
 
-FAR struct mtd_dev_s *is25xp_initialize(FAR struct spi_dev_s *dev);
+FAR struct mtd_dev_s *is25xp_initialize(FAR struct spi_dev_s *dev,
+                                        uint16_t spi_devid);
 
 /****************************************************************************
  * Name: m25p_initialize
@@ -603,7 +621,7 @@ FAR struct mtd_dev_s *n25qxxx_initialize(FAR struct qspi_dev_s *qspi,
  ****************************************************************************/
 
 FAR struct mtd_dev_s *w25qxxxjv_initialize(FAR struct qspi_dev_s *qspi,
-                                         bool unprotect);
+                                           bool unprotect);
 
 /****************************************************************************
  * Name: filemtd_initialize
@@ -703,6 +721,40 @@ int rpmsgmtd_register(FAR const char *remotecpu, FAR const char *remotepath,
 
 #ifdef CONFIG_RPMSGMTD_SERVER
 int rpmsgmtd_server_init(void);
+#endif
+
+/****************************************************************************
+ * Name: dhara_initialize
+ *
+ * Description:
+ *   Initialize to provide a block driver wrapper around an MTD interface
+ *
+ * Input Parameters:
+ *   minor - The minor device number.  The MTD block device will be
+ *           registered as as /dev/mtdblockN where N is the minor number.
+ *   mtd   - The MTD device that supports the FLASH interface.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_DHARA
+int dhara_initialize(int minor, FAR struct mtd_dev_s *mtd);
+#endif
+
+/****************************************************************************
+ * Name: dhara_initialize_by_path
+ *
+ * Description:
+ *   Initialize to provide a block driver wrapper around an MTD interface
+ *
+ * Input Parameters:
+ *   path - The block device path.
+ *   mtd  - The MTD device that supports the FLASH interface.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_MTD_DHARA
+int dhara_initialize_by_path(FAR const char *path,
+                             FAR struct mtd_dev_s *mtd);
 #endif
 
 #undef EXTERN

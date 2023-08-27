@@ -193,6 +193,23 @@ void net_ipv6_pref2mask(uint8_t preflen, net_ipv6addr_t mask);
 #endif
 
 /****************************************************************************
+ * Name: net_iob_concat
+ *
+ * Description:
+ *   Concatenate iob_s chain iob2 to iob1, if CONFIG_NET_RECV_PACK is
+ *   endabled, pack all data in the I/O buffer chain.
+ *
+ * Returned Value:
+ *   The number of bytes actually buffered is returned.  This will be either
+ *   zero or equal to iob1->io_pktlen.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_MM_IOB
+uint16_t net_iob_concat(FAR struct iob_s **iob1, FAR struct iob_s **iob2);
+#endif
+
+/****************************************************************************
  * Name: net_chksum_adjust
  *
  * Description:
@@ -310,6 +327,34 @@ uint16_t icmp_chksum_iob(FAR struct iob_s *iob);
 #ifdef CONFIG_NET_ICMPv6
 uint16_t icmpv6_chksum(FAR struct net_driver_s *dev, unsigned int iplen);
 #endif
+
+/****************************************************************************
+ * Name: cmsg_append
+ *
+ * Description:
+ *   Append specified data into the control message, msg_control and
+ *   msg_controllen will be changed to the appropriate value when success
+ *
+ * Input Parameters:
+ *   msg       - Buffer to receive the message.
+ *   level     - The level of control message.
+ *   type      - The type of control message.
+ *   value     - If the value is not NULL, this interface copies the data
+ *               to the appropriate location in msg_control, and modify
+ *               msg_control and msg_controllen.
+ *               If the value is NULL, just modify the corresponding value
+ *               of msg.
+ *   value_len - The value length of control message.
+ *
+ * Returned Value:
+ *   On success, a pointer to the start address of control message data,
+ *               the caller can copy the data in.
+ *   On failure, return NULL, because of msg_controllen is not enough
+ *
+ ****************************************************************************/
+
+FAR void *cmsg_append(FAR struct msghdr *msg, int level, int type,
+                      FAR void *value, int value_len);
 
 #undef EXTERN
 #ifdef __cplusplus

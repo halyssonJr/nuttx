@@ -44,6 +44,7 @@
 #include <nuttx/signal.h>
 #include <nuttx/net/mii.h>
 #include <nuttx/net/netconfig.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #ifdef CONFIG_NET_PKT
@@ -340,8 +341,8 @@ static void lpc17_40_checkreg(uint32_t addr, uint32_t val, bool iswrite);
 static uint32_t lpc17_40_getreg(uint32_t addr);
 static void lpc17_40_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc17_40_getreg(addr)     getreg32(addr)
-# define lpc17_40_putreg(val,addr) putreg32(val,addr)
+#  define lpc17_40_getreg(addr)     getreg32(addr)
+#  define lpc17_40_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Common TX logic */
@@ -1264,11 +1265,11 @@ static int lpc17_40_interrupt(int irq, void *context, void *arg)
   /* Clear the pending interrupt */
 
 #if 0 /* Apparently not necessary */
-# if CONFIG_LPC17_40_NINTERFACES > 1
+#  if CONFIG_LPC17_40_NINTERFACES > 1
   lpc17_40_clrpend(priv->irq);
-# else
+#  else
   lpc17_40_clrpend(LPC17_40_IRQ_ETH);
-# endif
+#  endif
 #endif
 
   return OK;
@@ -1454,11 +1455,9 @@ static int lpc17_40_ifup(struct net_driver_s *dev)
   uint32_t regval;
   int ret;
 
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 
   /* Reset the Ethernet controller (again) */
 

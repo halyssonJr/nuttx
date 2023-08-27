@@ -38,6 +38,7 @@
 #include <nuttx/kthread.h>
 #include <nuttx/semaphore.h>
 
+#include "sched/sched.h"
 #include "wqueue/wqueue.h"
 
 #if defined(CONFIG_SCHED_WORKQUEUE)
@@ -54,15 +55,15 @@
 #  define CALL_WORKER(worker, arg) \
      do \
        { \
-         uint32_t start; \
-         uint32_t elapsed; \
+         unsigned long start; \
+         unsigned long elapsed; \
          start = up_perf_gettime(); \
          worker(arg); \
          elapsed = up_perf_gettime() - start; \
          if (elapsed > CONFIG_SCHED_CRITMONITOR_MAXTIME_WQUEUE) \
            { \
-             serr("WORKER %p execute too long %"PRIu32"\n", \
-                   worker, elapsed); \
+             CRITMONITOR_PANIC("WORKER %p execute too long %lu\n", \
+                               worker, elapsed); \
            } \
        } \
      while (0)
@@ -131,7 +132,7 @@ static int work_thread(int argc, FAR char *argv[])
   FAR void *arg;
 
   wqueue = (FAR struct kwork_wqueue_s *)
-           ((uintptr_t)strtoul(argv[1], NULL, 0));
+           ((uintptr_t)strtoul(argv[1], NULL, 16));
 
   flags = enter_critical_section();
 
@@ -139,13 +140,6 @@ static int work_thread(int argc, FAR char *argv[])
 
   for (; ; )
     {
-      /* Then process queued work.  work_process will not return until: (1)
-       * there is no further work in the work queue, and (2) semaphore is
-       * posted.
-       */
-
-      nxsem_wait_uninterruptible(&wqueue->sem);
-
       /* And check each entry in the work queue.  Since we have disabled
        * interrupts we know:  (1) we will not be suspended unless we do
        * so ourselves, and (2) there will be no changes to the work queue
@@ -153,9 +147,13 @@ static int work_thread(int argc, FAR char *argv[])
 
       /* Remove the ready-to-execute work from the list */
 
-      work = (FAR struct work_s *)dq_remfirst(&wqueue->q);
-      if (work && work->worker)
+      while ((work = (FAR struct work_s *)dq_remfirst(&wqueue->q)) != NULL)
         {
+          if (work->worker == NULL)
+            {
+              continue;
+            }
+
           /* Extract the work description from the entry (in case the work
            * instance will be re-used after it has been de-queued).
            */
@@ -178,6 +176,13 @@ static int work_thread(int argc, FAR char *argv[])
           CALL_WORKER(worker, arg);
           flags = enter_critical_section();
         }
+
+      /* Then process queued work.  work_process will not return until: (1)
+       * there is no further work in the work queue, and (2) semaphore is
+       * posted.
+       */
+
+      nxsem_wait_uninterruptible(&wqueue->sem);
     }
 
   leave_critical_section(flags);
@@ -213,7 +218,7 @@ static int work_thread_create(FAR const char *name, int priority,
   int wndx;
   int pid;
 
-  snprintf(args, sizeof(args), "0x%" PRIxPTR, (uintptr_t)wqueue);
+  snprintf(args, sizeof(args), "%p", wqueue);
   argv[0] = args;
   argv[1] = NULL;
 

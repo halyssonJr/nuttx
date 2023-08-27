@@ -25,6 +25,7 @@
 #include <nuttx/config.h>
 
 #include <sys/types.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <sched.h>
 #include <string.h>
@@ -83,6 +84,7 @@ static int nxtask_assign_pid(FAR struct tcb_s *tcb)
   FAR struct tcb_s **pidhash;
   pid_t next_pid;
   int   hash_ndx;
+  void *temp;
   int   i;
 
   /* NOTE:
@@ -160,8 +162,9 @@ retry:
 
   /* Release resource for original g_pidhash, using new g_pidhash */
 
-  kmm_free(g_pidhash);
+  temp = g_pidhash;
   g_pidhash = pidhash;
+  kmm_free(temp);
 
   /* Let's try every allowable pid again */
 
@@ -482,9 +485,24 @@ static int nxthread_setup_scheduler(FAR struct tcb_s *tcb, int priority,
 static void nxtask_setup_name(FAR struct task_tcb_s *tcb,
                               FAR const char *name)
 {
+  FAR char *dst = tcb->cmn.name;
+  int i;
+
   /* Copy the name into the TCB */
 
-  strlcpy(tcb->cmn.name, name, sizeof(tcb->cmn.name));
+  for (i = 0; i < CONFIG_TASK_NAME_SIZE; i++)
+    {
+      char c = *name++;
+
+      if (c == '\0')
+        {
+          break;
+        }
+
+      *dst++ = isspace(c) ? '_' : c;
+    }
+
+  *dst = '\0';
 }
 #else
 #  define nxtask_setup_name(t,n)

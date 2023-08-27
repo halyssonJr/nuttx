@@ -245,8 +245,8 @@ struct lpc54_dev_s
 static uint32_t lpc54_getreg(uint32_t addr);
 static void lpc54_putreg(uint32_t val, uint32_t addr);
 #else
-# define lpc54_getreg(addr)      getreg32(addr)
-# define lpc54_putreg(val,addr)  putreg32(val,addr)
+#  define lpc54_getreg(addr)     getreg32(addr)
+#  define lpc54_putreg(val,addr) putreg32(val,addr)
 #endif
 
 /* Low-level helpers ********************************************************/
@@ -1197,7 +1197,11 @@ static int lpc54_lock(struct sdio_dev_s *dev, bool lock)
    * bus is part of board support package.
    */
 
-  lpc54_muxbus_sdio_lock(lock);
+  /* FIXME: Implement the below function to support bus share:
+   *
+   * lpc54_muxbus_sdio_lock(lock);
+   */
+
   return OK;
 }
 #endif

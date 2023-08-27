@@ -42,6 +42,7 @@
 #include <nuttx/kmalloc.h>
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 #include <nuttx/net/ftmac100.h>
 
@@ -77,7 +78,7 @@
  */
 
 #ifndef CONFIG_FTMAC100_NINTERFACES
-# define CONFIG_FTMAC100_NINTERFACES 1
+#  define CONFIG_FTMAC100_NINTERFACES 1
 #endif
 
 /* TX timeout = 1 minute */
@@ -102,24 +103,24 @@
 #define ETH_ZLEN 60
 
 #if defined(CONFIG_NET_MCASTGROUP) || defined(CONFIG_NET_ICMPv6)
-# define MACCR_ENABLE_ALL (FTMAC100_MACCR_XMT_EN  | \
-                           FTMAC100_MACCR_RCV_EN  | \
-                           FTMAC100_MACCR_XDMA_EN | \
-                           FTMAC100_MACCR_RDMA_EN | \
-                           FTMAC100_MACCR_CRC_APD | \
-                           FTMAC100_MACCR_FULLDUP | \
-                           FTMAC100_MACCR_RX_RUNT | \
-                           FTMAC100_MACCR_HT_MULTI_EN | \
-                           FTMAC100_MACCR_RX_BROADPKT)
+#  define MACCR_ENABLE_ALL (FTMAC100_MACCR_XMT_EN  | \
+                            FTMAC100_MACCR_RCV_EN  | \
+                            FTMAC100_MACCR_XDMA_EN | \
+                            FTMAC100_MACCR_RDMA_EN | \
+                            FTMAC100_MACCR_CRC_APD | \
+                            FTMAC100_MACCR_FULLDUP | \
+                            FTMAC100_MACCR_RX_RUNT | \
+                            FTMAC100_MACCR_HT_MULTI_EN | \
+                            FTMAC100_MACCR_RX_BROADPKT)
 #else
-# define MACCR_ENABLE_ALL (FTMAC100_MACCR_XMT_EN  | \
-                           FTMAC100_MACCR_RCV_EN  | \
-                           FTMAC100_MACCR_XDMA_EN | \
-                           FTMAC100_MACCR_RDMA_EN | \
-                           FTMAC100_MACCR_CRC_APD | \
-                           FTMAC100_MACCR_FULLDUP | \
-                           FTMAC100_MACCR_RX_RUNT | \
-                           FTMAC100_MACCR_RX_BROADPKT)
+#  define MACCR_ENABLE_ALL (FTMAC100_MACCR_XMT_EN  | \
+                            FTMAC100_MACCR_RCV_EN  | \
+                            FTMAC100_MACCR_XDMA_EN | \
+                            FTMAC100_MACCR_RDMA_EN | \
+                            FTMAC100_MACCR_CRC_APD | \
+                            FTMAC100_MACCR_FULLDUP | \
+                            FTMAC100_MACCR_RX_RUNT | \
+                            FTMAC100_MACCR_RX_BROADPKT)
 #endif
 
 #define MACCR_DISABLE_ALL 0
@@ -1037,9 +1038,9 @@ static int ftmac100_ifup(struct net_driver_s *dev)
     (FAR struct ftmac100_driver_s *)dev->d_private;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff), (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff), (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",

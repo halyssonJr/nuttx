@@ -44,6 +44,7 @@
 #include <nuttx/fs/fs.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/signal.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
 
 #include <nuttx/usb/cdc.h>
@@ -339,7 +340,7 @@ static struct usbhost_registry_s g_cdcmbim =
 
 /* File operations for control channel */
 
-static const struct file_operations cdcwdm_fops =
+static const struct file_operations g_cdcwdm_fops =
 {
   NULL,          /* open */
   NULL,          /* close */
@@ -1574,7 +1575,7 @@ static inline int usbhost_devinit(FAR struct usbhost_cdcmbim_s *priv)
 
       uinfo("Register character driver\n");
       usbhost_mkdevname(priv, devname);
-      ret = register_driver(devname, &cdcwdm_fops, 0666, priv);
+      ret = register_driver(devname, &g_cdcwdm_fops, 0666, priv);
     }
 
   if (priv->intin)
@@ -2310,9 +2311,9 @@ static int cdcmbim_ifup(struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff), (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff), (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",

@@ -186,7 +186,7 @@ ssize_t psock_6lowpan_udp_sendto(FAR struct socket *psock,
 
   /* Get the underlying UDP "connection" structure */
 
-  conn = (FAR struct udp_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
   DEBUGASSERT(conn != NULL);
 
   /* Route outgoing message to the correct device */
@@ -213,7 +213,7 @@ ssize_t psock_6lowpan_udp_sendto(FAR struct socket *psock,
 #ifdef CONFIG_NET_ICMPv6_NEIGHBOR
   /* Make sure that the IP address mapping is in the Neighbor Table */
 
-  ret = icmpv6_neighbor(to6->sin6_addr.in6_u.u6_addr16);
+  ret = icmpv6_neighbor(dev, to6->sin6_addr.in6_u.u6_addr16);
   if (ret < 0)
     {
       nerr("ERROR: Not reachable\n");
@@ -227,7 +227,7 @@ ssize_t psock_6lowpan_udp_sendto(FAR struct socket *psock,
   ipv6udp.ipv6.tcf    = 0x00;
   ipv6udp.ipv6.flow   = 0x00;
   ipv6udp.ipv6.proto  = IP_PROTO_UDP;
-  ipv6udp.ipv6.ttl    = conn->ttl;
+  ipv6udp.ipv6.ttl    = conn->sconn.ttl;
 
   /* The IPv6 header length field does not include the size of IPv6 IP
    * header.
@@ -351,7 +351,7 @@ ssize_t psock_6lowpan_udp_send(FAR struct socket *psock, FAR const void *buf,
 
   /* Get the underlying UDP "connection" structure */
 
-  conn = (FAR struct udp_conn_s *)psock->s_conn;
+  conn = psock->s_conn;
 
   /* Was the UDP socket connected via connect()? */
 

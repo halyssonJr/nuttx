@@ -105,7 +105,9 @@ static inline void sendto_ipselect(FAR struct net_driver_s *dev,
 
   /* Which domain the socket support */
 
-  if (conn->domain == PF_INET)
+  if (conn->domain == PF_INET ||
+      (conn->domain == PF_INET6 &&
+       ip6_is_ipv4addr((FAR struct in6_addr *)conn->u.ipv6.raddr)))
     {
       /* Select the IPv4 domain */
 
@@ -194,11 +196,12 @@ static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
         {
           /* Copy the user data into d_appdata and send it */
 
-          devif_send(dev, pstate->st_buffer,
-                     pstate->st_buflen, udpip_hdrsize(pstate->st_conn));
-          if (dev->d_sndlen == 0)
+          int ret = devif_send(dev, pstate->st_buffer, pstate->st_buflen,
+                               udpip_hdrsize(pstate->st_conn));
+          if (ret <= 0)
             {
-              return flags;
+              pstate->st_sndlen = ret;
+              goto end_wait;
             }
 
 #ifdef NEED_IPDOMAIN_SUPPORT
@@ -213,6 +216,8 @@ static uint16_t sendto_eventhandler(FAR struct net_driver_s *dev,
 
           pstate->st_sndlen = pstate->st_buflen;
         }
+
+end_wait:
 
       /* Don't allow any further call backs. */
 
@@ -379,7 +384,7 @@ ssize_t psock_udp_sendto(FAR struct socket *psock, FAR const void *buf,
 
       /* Make sure that the IP address mapping is in the Neighbor Table */
 
-      ret = icmpv6_neighbor(destipaddr);
+      ret = icmpv6_neighbor(NULL, destipaddr);
     }
 #endif /* CONFIG_NET_ICMPv6_NEIGHBOR */
 

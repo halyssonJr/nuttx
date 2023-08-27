@@ -217,18 +217,47 @@ struct lib_rawsostream_s
   int                    fd;
 };
 
+struct lib_bufferedoutstream_s
+{
+  struct lib_outstream_s      public;
+  FAR struct lib_outstream_s *backend;
+  int                         pending;
+  char                        buffer[CONFIG_STREAM_OUT_BUFFER_SIZE];
+};
+
+struct lib_hexdumpstream_s
+{
+  struct lib_outstream_s      public;
+  FAR struct lib_outstream_s *backend;
+  int                         pending;
+  char                        buffer[CONFIG_STREAM_HEXDUMP_BUFFER_SIZE + 1];
+};
+
 /* This is a special stream that does buffered character I/O.  NOTE that is
  * CONFIG_SYSLOG_BUFFER is not defined, it is the same as struct
  * lib_outstream_s
  */
 
-struct iob_s;  /* Forward reference */
-
 struct lib_syslogstream_s
 {
   struct lib_outstream_s public;
+  int priority;
+};
+
+struct iob_s;  /* Forward reference */
+
+struct lib_syslograwstream_s
+{
+  struct lib_outstream_s public;
 #ifdef CONFIG_SYSLOG_BUFFER
+#  ifdef CONFIG_MM_IOB
   FAR struct iob_s *iob;
+#  else
+  char buffer[CONFIG_SYSLOG_BUFSIZE];
+#  endif
+  FAR char *base;
+  int size;
+  int offset;
 #endif
   int last_ch;
 };
@@ -373,6 +402,45 @@ void lib_rawsistream(FAR struct lib_rawsistream_s *instream, int fd);
 void lib_rawsostream(FAR struct lib_rawsostream_s *outstream, int fd);
 
 /****************************************************************************
+ * Name: lib_bufferedoutstream
+ *
+ * Description:
+ *   Wrap a raw output stream to a buffered output stream.
+ *
+ * Input Parameters:
+ *   outstream - User allocated, uninitialized instance of struct
+ *               lib_bufferedoutstream_s to be initialized.
+ *   backend   - User allocated, initialized instance of struct
+ *               lib_outstream_s to be buffered.
+ *
+ * Returned Value:
+ *   None (User allocated instance initialized).
+ *
+ ****************************************************************************/
+
+void lib_bufferedoutstream(FAR struct lib_bufferedoutstream_s *outstream,
+                           FAR struct lib_outstream_s *backend);
+
+/****************************************************************************
+ * Name: lib_hexdumpstream
+ *
+ * Description:
+ *   Convert binary stream to hex and redirect to syslog
+ *
+ * Input Parameters:
+ *   stream    - User allocated, uninitialized instance of struct
+ *               lib_bufferedoutstream_s to be initialized.
+ *   backend   - Stream backend port.
+ *
+ * Returned Value:
+ *   None (User allocated instance initialized).
+ *
+ ****************************************************************************/
+
+void lib_hexdumpstream(FAR struct lib_hexdumpstream_s *stream,
+                       FAR struct lib_outstream_s *backend);
+
+/****************************************************************************
  * Name: lib_lowoutstream
  *
  * Description:
@@ -424,7 +492,25 @@ void lib_nullinstream(FAR struct lib_instream_s *nullinstream);
 void lib_nulloutstream(FAR struct lib_outstream_s *nulloutstream);
 
 /****************************************************************************
- * Name: lib_syslogstream_open
+ * Name: lib_syslogstream
+ *
+ * Description:
+ *   Initializes syslog stream
+ *
+ * Input Parameters:
+ *   stream   - User allocated, uninitialized instance of struct
+ *              lib_syslogstream_s to be initialized.
+ *   priority - log priority.
+ *
+ * Returned Value:
+ *   None (User allocated instance initialized).
+ *
+ ****************************************************************************/
+
+void lib_syslogstream(FAR struct lib_syslogstream_s *stream, int priority);
+
+/****************************************************************************
+ * Name: lib_syslograwstream_open
  *
  * Description:
  *   Initializes a stream for use with the configured syslog interface.
@@ -432,24 +518,24 @@ void lib_nulloutstream(FAR struct lib_outstream_s *nulloutstream);
  *
  * Input Parameters:
  *   stream - User allocated, uninitialized instance of struct
- *            lib_syslogstream_s to be initialized.
+ *            lib_syslograwstream_s to be initialized.
  *
  * Returned Value:
  *   None (User allocated instance initialized).
  *
  ****************************************************************************/
 
-void lib_syslogstream_open(FAR struct lib_syslogstream_s *stream);
+void lib_syslograwstream_open(FAR struct lib_syslograwstream_s *stream);
 
 /****************************************************************************
- * Name: lib_syslogstream_close
+ * Name: lib_syslograwstream_close
  *
  * Description:
  *   Free resources held by the syslog stream.
  *
  * Input Parameters:
  *   stream - User allocated, uninitialized instance of struct
- *            lib_syslogstream_s to be initialized.
+ *            lib_syslograwstream_s to be initialized.
  *
  * Returned Value:
  *   None (Resources freed).
@@ -457,9 +543,9 @@ void lib_syslogstream_open(FAR struct lib_syslogstream_s *stream);
  ****************************************************************************/
 
 #ifdef CONFIG_SYSLOG_BUFFER
-void lib_syslogstream_close(FAR struct lib_syslogstream_s *stream);
+void lib_syslograwstream_close(FAR struct lib_syslograwstream_s *stream);
 #else
-#  define lib_syslogstream_close(s)
+#  define lib_syslograwstream_close(s)
 #endif
 
 /****************************************************************************
@@ -602,6 +688,31 @@ int lib_snoflush(FAR struct lib_sostream_s *this);
 
 int lib_sprintf(FAR struct lib_outstream_s *obj,
                 FAR const IPTR char *fmt, ...) printf_like(2, 3);
+
+/****************************************************************************
+ * Name: lib_sprintf_internal
+ *
+ * Description:
+ *   This function does not take numbered arguments in printf.
+ *   Equivalent to lib_sprintf when CONFIG_LIBC_NUMBERED_ARGS is not enabled
+ *
+ ****************************************************************************/
+
+int lib_sprintf_internal(FAR struct lib_outstream_s *obj,
+                         FAR const IPTR char *fmt, ...) printf_like(2, 3);
+
+/****************************************************************************
+ * Name: lib_vsprintf_internal
+ *
+ * Description:
+ *   This function does not take numbered arguments in printf.
+ *   Equivalent to lib_sprintf when CONFIG_LIBC_NUMBERED_ARGS is not enabled
+ *
+ ****************************************************************************/
+
+int lib_vsprintf_internal(FAR struct lib_outstream_s *stream,
+                          FAR const IPTR char *fmt, va_list ap)
+                          printf_like(2, 0);
 
 /****************************************************************************
  * Name: lib_vsprintf

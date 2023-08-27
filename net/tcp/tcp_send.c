@@ -170,7 +170,7 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
 
   /* Update device buffer length before setup the IP header */
 
-  iob_update_pktlen(dev->d_iob, dev->d_len);
+  iob_update_pktlen(dev->d_iob, dev->d_len, false);
 
   /* Calculate chk & build L3 header */
 
@@ -182,7 +182,7 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
       ninfo("do IPv6 IP header build!\n");
       ipv6_build_header(IPv6BUF, dev->d_len - IPv6_HDRLEN,
                         IP_PROTO_TCP, dev->d_ipv6addr, conn->u.ipv6.raddr,
-                        IP_TTL_DEFAULT, conn->sconn.s_tclass);
+                        conn->sconn.ttl, conn->sconn.s_tclass);
 
       /* Calculate TCP checksum. */
 
@@ -202,7 +202,7 @@ static void tcp_sendcommon(FAR struct net_driver_s *dev,
       ninfo("do IPv4 IP header build!\n");
       ipv4_build_header(IPv4BUF, dev->d_len, IP_PROTO_TCP,
                         &dev->d_ipaddr, &conn->u.ipv4.raddr,
-                        IP_TTL_DEFAULT, conn->sconn.s_tos, NULL);
+                        conn->sconn.ttl, conn->sconn.s_tos, NULL);
 
       /* Calculate TCP checksum. */
 
@@ -464,7 +464,7 @@ void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
 
   /* Update device buffer length before setup the IP header */
 
-  iob_update_pktlen(dev->d_iob, dev->d_len);
+  iob_update_pktlen(dev->d_iob, dev->d_len, false);
 
   /* Calculate chk & build L3 header */
 
@@ -477,8 +477,8 @@ void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
 
       ipv6_build_header(ipv6, dev->d_len - IPv6_HDRLEN,
                         IP_PROTO_TCP, dev->d_ipv6addr, ipv6->srcipaddr,
-                        IP_TTL_DEFAULT, conn ? conn->sconn.s_tclass : 0);
-
+                        conn ? conn->sconn.ttl : IP_TTL_DEFAULT,
+                        conn ? conn->sconn.s_tos : 0);
       tcp->tcpchksum = 0;
       tcp->tcpchksum = ~tcp_ipv6_chksum(dev);
     }
@@ -493,7 +493,8 @@ void tcp_reset(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn)
 
       ipv4_build_header(IPv4BUF, dev->d_len, IP_PROTO_TCP,
                         &dev->d_ipaddr, (FAR in_addr_t *)ipv4->srcipaddr,
-                        IP_TTL_DEFAULT, conn ? conn->sconn.s_tos : 0, NULL);
+                        conn ? conn->sconn.ttl : IP_TTL_DEFAULT,
+                        conn ? conn->sconn.s_tos : 0, NULL);
 
       tcp->tcpchksum = 0;
       tcp->tcpchksum = ~tcp_ipv4_chksum(dev);
@@ -585,7 +586,16 @@ void tcp_synack(FAR struct net_driver_s *dev, FAR struct tcp_conn_s *conn,
 
   /* Set the packet length for the TCP Maximum Segment Size */
 
-  tcp_mss = tcp_rx_mss(dev);
+#ifdef CONFIG_NET_TCPPROTO_OPTIONS
+  if (conn->user_mss != 0 && conn->user_mss < tcp_rx_mss(dev))
+    {
+      tcp_mss = conn->user_mss;
+    }
+  else
+#endif
+    {
+      tcp_mss = tcp_rx_mss(dev);
+    }
 
   /* Save the ACK bits */
 

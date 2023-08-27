@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <ctype.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <stdbool.h>
@@ -36,6 +37,7 @@
 #include <assert.h>
 #include <errno.h>
 
+#include <nuttx/ascii.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/mutex.h>
 #include <nuttx/semaphore.h>
@@ -73,9 +75,9 @@ struct pty_dev_s
   struct file pd_src;           /* Provides data to read() method (pipe output) */
   struct file pd_sink;          /* Accepts data from write() method (pipe input) */
   bool pd_master;               /* True: this is the master */
-#ifdef CONFIG_SERIAL_TERMIOS
+  uint8_t pd_escape;            /* Number of the character to be escaped */
   tcflag_t pd_iflag;            /* Terminal input modes */
-#endif
+  tcflag_t pd_lflag;            /* Terminal local modes */
   tcflag_t pd_oflag;            /* Terminal output modes */
   struct pty_poll_s pd_poll[CONFIG_DEV_PTY_NPOLLWAITERS];
 };
@@ -394,18 +396,15 @@ static ssize_t pty_read(FAR struct file *filep, FAR char *buffer, size_t len)
   FAR struct inode *inode;
   FAR struct pty_dev_s *dev;
   ssize_t ntotal;
-#ifdef CONFIG_SERIAL_TERMIOS
   ssize_t i;
   ssize_t j;
   char ch;
-#endif
 
   DEBUGASSERT(filep != NULL && filep->f_inode != NULL);
   inode = filep->f_inode;
   dev   = inode->i_private;
   DEBUGASSERT(dev != NULL);
 
-#ifdef CONFIG_SERIAL_TERMIOS
   /* Do input processing if any is enabled
    *
    * Specifically not handled:
@@ -460,7 +459,6 @@ static ssize_t pty_read(FAR struct file *filep, FAR char *buffer, size_t len)
         }
     }
   else
-#endif
     {
       /* NOTE: the source pipe will block if no data is available in
        * the pipe.   Otherwise, it will return data from the pipe.  If
@@ -474,6 +472,70 @@ static ssize_t pty_read(FAR struct file *filep, FAR char *buffer, size_t len)
        */
 
       ntotal = file_read(&dev->pd_src, buffer, len);
+    }
+
+  if ((dev->pd_lflag & ECHO) && (ntotal > 0))
+    {
+      size_t n = 0;
+
+      for (i = j = 0; i < ntotal; i++)
+        {
+          ch = buffer[i];
+
+          /* Check for the beginning of a VT100 escape sequence, 3 byte */
+
+          if (ch == ASCII_ESC)
+            {
+              /* Mark that we should skip 2 more bytes */
+
+              dev->pd_escape = 2;
+              continue;
+            }
+          else if (dev->pd_escape == 2 && ch != ASCII_LBRACKET)
+            {
+              /* It's not an <esc>[x 3 byte sequence, show it */
+
+              dev->pd_escape = 0;
+            }
+          else if (dev->pd_escape > 0)
+            {
+              /* Skipping character count down */
+
+              if (--dev->pd_escape > 0)
+                {
+                  continue;
+                }
+            }
+
+          /* Echo if the character in batch */
+
+          if (ch == '\n' || (n != 0 && j + n != i))
+            {
+              if (n != 0)
+                {
+                  pty_write(filep, buffer + j, n);
+                  n = 0;
+                }
+
+              if (ch == '\n')
+                {
+                  pty_write(filep, "\r\n", 2);
+                  continue;
+                }
+            }
+
+          /* Record the character can be echo */
+
+          if (!iscntrl(ch & 0xff) && n++ == 0)
+            {
+              j = i;
+            }
+        }
+
+      if (n != 0)
+        {
+          pty_write(filep, buffer + j, n);
+        }
     }
 
   return ntotal;
@@ -681,7 +743,6 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
         break;
 
-#ifdef CONFIG_SERIAL_TERMIOS
       case TCGETS:
         {
           FAR struct termios *termiosp = (FAR struct termios *)arg;
@@ -696,7 +757,7 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           termiosp->c_iflag = dev->pd_iflag;
           termiosp->c_oflag = dev->pd_oflag;
-          termiosp->c_lflag = 0;
+          termiosp->c_lflag = dev->pd_lflag;
           ret = OK;
         }
         break;
@@ -715,10 +776,10 @@ static int pty_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 
           dev->pd_iflag = termiosp->c_iflag;
           dev->pd_oflag = termiosp->c_oflag;
+          dev->pd_lflag = termiosp->c_lflag;
           ret = OK;
         }
         break;
-#endif
 
       /* Get the number of bytes that are immediately available for reading
        * from the source pipe.
@@ -955,13 +1016,21 @@ int pty_register2(int minor, bool susv1)
   nxsem_init(&devpair->pp_slavesem, 0, 0);
   nxmutex_init(&devpair->pp_lock);
 
+  /* Map CR -> NL from terminal input (master)
+   * For some usage like adb shell:
+   *   adb shell write \r -> nsh read \n and echo input
+   *   nsh write \n -> adb shell read \r\n
+   */
+
   devpair->pp_susv1             = susv1;
   devpair->pp_minor             = minor;
   devpair->pp_locked            = true;
   devpair->pp_master.pd_devpair = devpair;
   devpair->pp_master.pd_master  = true;
+  devpair->pp_master.pd_oflag   = OPOST | OCRNL;
   devpair->pp_slave.pd_devpair  = devpair;
   devpair->pp_slave.pd_oflag    = OPOST | ONLCR;
+  devpair->pp_slave.pd_lflag    = ECHO;
 
   /* Register the master device
    *

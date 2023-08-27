@@ -36,11 +36,16 @@
 #include "nvic.h"
 
 #include "nrf53_clockconfig.h"
+#include "hardware/nrf53_nvmc.h"
 #include "hardware/nrf53_utils.h"
+#include "hardware/nrf53_uicr.h"
+#include "hardware/nrf53_ctrlap.h"
 #include "nrf53_lowputc.h"
 #include "nrf53_start.h"
+#include "nrf53_cpunet.h"
 #include "nrf53_gpio.h"
 #include "nrf53_serial.h"
+#include "nrf53_spu.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -71,6 +76,88 @@ void __start(void) noinstrument_function;
 #endif
 
 /****************************************************************************
+ * Name: nrf53_approtect
+ ****************************************************************************/
+
+void nrf53_approtect(void)
+{
+#ifdef CONFIG_NRF53_ENABLE_APPROTECT
+  /* Lock APPROTECT.DISABLE */
+
+  putreg32(CTRLAP_APPROTECTLOCK_LOCKED, NRF53_CTRLAP_APPROTECTLOCK);
+#else
+  uint32_t regval = 0;
+
+  /* Load APPROTECT from UICR */
+
+  regval = getreg32(NRF53_UICR_APPROTECT);
+  putreg32(regval, NRF53_CTRLAP_APPROTECTDISABLE);
+
+#  ifdef CONFIG_NRF53_APPCORE
+  /* Load SECUREAPPROTECT from UICR only for the App core */
+
+  regval = getreg32(NRF53_UICR_SECUREAPPROTECT);
+  putreg32(regval, NRF53_CTRLAP_SECUREREADPROTECTDISABLE);
+#  endif
+#endif
+}
+
+#ifdef CONFIG_NRF53_FLASH_PREFETCH
+
+/****************************************************************************
+ * Name: nrf53_enable_icache
+ *
+ * Description:
+ *   Enable I-Cache for Flash
+ *
+ * Input Parameter:
+ *   enable - enable or disable I-Cache
+ *
+ * Returned Values:
+ *   None
+ *
+ ****************************************************************************/
+
+void nrf53_enable_icache(bool enable)
+{
+  if (enable)
+    {
+      modifyreg32(NRF53_NVMC_ICACHECNF, 0, NVMC_ICACHECNF_CACHEEN);
+    }
+  else
+    {
+      modifyreg32(NRF53_NVMC_ICACHECNF, NVMC_ICACHECNF_CACHEEN, 0);
+    }
+}
+
+/****************************************************************************
+ * Name: nrf53_enable_profile
+ *
+ * Description:
+ *   Enable profiling I-Cache for flash
+ *
+ * Input Parameter:
+ *   enable - enable or disable profiling for I-Cache
+ *
+ * Returned Values:
+ *   None
+ *
+ ****************************************************************************/
+
+void nrf53_enable_profile(bool enable)
+{
+  if (enable)
+    {
+      modifyreg32(NRF53_NVMC_ICACHECNF, 0, NVMC_ICACHECNF_CACHEPROFEN);
+    }
+  else
+    {
+      modifyreg32(NRF53_NVMC_ICACHECNF, NVMC_ICACHECNF_CACHEPROFEN, 0);
+    }
+}
+#endif
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -97,6 +184,22 @@ void __start(void)
   /* Make sure that interrupts are disabled */
 
   __asm__ __volatile__ ("\tcpsid  i\n");
+
+#ifdef HAVE_SPU_CONFIG
+  /* Configure SPU before cpunet boot */
+
+  nrf53_spu_configure();
+#endif
+
+  /* Handle APPROTECT configuration */
+
+  nrf53_approtect();
+
+#ifdef CONFIG_NRF53_NET_BOOT
+  /* Boot CPU NET before console init */
+
+  nrf53_cpunet_boot();
+#endif
 
   /* Configure the clocking and the console uart so that we can get debug
    * output as soon as possible.  NOTE: That this logic must not assume that
@@ -133,15 +236,16 @@ void __start(void)
 
   showprogress('C');
 
-#if defined(CONFIG_ARCH_CHIP_NRF53832)
-  /* Initialize the errdata work-around */
-
-  nrf53832_errdata_init();
-#endif
-
-  /* Initialize the FPU (if configured) */
+#ifdef CONFIG_ARCH_HAVE_FPU
+  /* Initialize the FPU (if available) */
 
   arm_fpuconfig();
+#endif
+
+#ifdef CONFIG_NRF53_FLASH_PREFETCH
+  nrf53_enable_icache(true);
+  nrf53_enable_profile(true);
+#endif
 
   showprogress('D');
 

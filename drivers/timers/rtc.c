@@ -116,7 +116,7 @@ static int     rtc_unlink(FAR struct inode *inode);
  * Private Data
  ****************************************************************************/
 
-static const struct file_operations rtc_fops =
+static const struct file_operations g_rtc_fops =
 {
 #ifndef CONFIG_DISABLE_PSEUDOFS_OPERATIONS
   rtc_open,      /* open */
@@ -819,7 +819,7 @@ static int rtc_unlink(FAR struct inode *inode)
 int rtc_initialize(int minor, FAR struct rtc_lowerhalf_s *lower)
 {
   FAR struct rtc_upperhalf_s *upper;
-  char devpath[16];
+  char devpath[20];
   int ret;
 
   DEBUGASSERT(lower && lower->ops && minor >= 0 && minor < 1000);
@@ -844,15 +844,15 @@ int rtc_initialize(int minor, FAR struct rtc_lowerhalf_s *lower)
   upper->unlinked = false;  /* Driver is not  unlinked */
 #endif
 
-  /* Create the driver name.  There is space for the a minor number up to  6
+  /* Create the driver name.  There is space for the a minor number up to 10
    * characters
    */
 
-  snprintf(devpath, 16, "/dev/rtc%d", minor);
+  snprintf(devpath, sizeof(devpath), "/dev/rtc%d", minor);
 
   /* And, finally, register the new RTC driver */
 
-  ret = register_driver(devpath, &rtc_fops, 0666, upper);
+  ret = register_driver(devpath, &g_rtc_fops, 0666, upper);
   if (ret < 0)
     {
       nxmutex_destroy(&upper->lock);

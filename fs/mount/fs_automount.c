@@ -136,7 +136,7 @@ static int  automount_interrupt(FAR const struct automount_lower_s *lower,
  ****************************************************************************/
 
 #ifdef CONFIG_FS_AUTOMOUNTER_DRIVER
-static const struct file_operations automount_fops =
+static const struct file_operations g_automount_fops =
 {
   automount_open,       /* open */
   automount_close,      /* close */
@@ -857,9 +857,10 @@ FAR void *automount_initialize(FAR const struct automount_lower_s *lower)
 
   /* Register driver */
 
-  sprintf(devpath, CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s", lower->mountpoint);
+  snprintf(devpath, sizeof(devpath),
+           CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s", lower->mountpoint);
 
-  ret = register_driver(devpath, &automount_fops, 0444, priv);
+  ret = register_driver(devpath, &g_automount_fops, 0444, priv);
   if (ret < 0)
     {
       ferr("ERROR: Failed to register automount driver: %d\n", ret);
@@ -918,8 +919,8 @@ void automount_uninitialize(FAR void *handle)
     {
       char devpath[PATH_MAX];
 
-      sprintf(devpath, CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s",
-              lower->mountpoint);
+      snprintf(devpath, sizeof(devpath),
+               CONFIG_FS_AUTOMOUNTER_VFS_PATH "%s", lower->mountpoint);
 
       unregister_driver(devpath);
     }

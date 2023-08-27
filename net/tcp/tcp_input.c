@@ -315,7 +315,7 @@ static bool tcp_rebuild_ofosegs(FAR struct tcp_conn_s *conn,
 
           else if (ofoseg->left == seg->right)
             {
-              tcp_dataconcat(&seg->data, &ofoseg->data);
+              net_iob_concat(&seg->data, &ofoseg->data);
               seg->right = ofoseg->right;
             }
 
@@ -338,7 +338,7 @@ static bool tcp_rebuild_ofosegs(FAR struct tcp_conn_s *conn,
               ofoseg->data =
                 iob_trimhead(ofoseg->data,
                              TCP_SEQ_SUB(seg->right, ofoseg->left));
-              tcp_dataconcat(&seg->data, &ofoseg->data);
+              net_iob_concat(&seg->data, &ofoseg->data);
               seg->right = ofoseg->right;
             }
         }
@@ -355,7 +355,7 @@ static bool tcp_rebuild_ofosegs(FAR struct tcp_conn_s *conn,
 
           if (ofoseg->right == seg->left)
             {
-              tcp_dataconcat(&ofoseg->data, &seg->data);
+              net_iob_concat(&ofoseg->data, &seg->data);
               seg->data = ofoseg->data;
               seg->left = ofoseg->left;
               ofoseg->data = NULL;
@@ -390,7 +390,7 @@ static bool tcp_rebuild_ofosegs(FAR struct tcp_conn_s *conn,
               ofoseg->data =
                 iob_trimtail(ofoseg->data,
                              ofoseg->right - seg->left);
-              tcp_dataconcat(&ofoseg->data, &seg->data);
+              net_iob_concat(&ofoseg->data, &seg->data);
               seg->data = ofoseg->data;
               seg->left = ofoseg->left;
               ofoseg->data = NULL;
@@ -454,10 +454,11 @@ static void tcp_input_ofosegs(FAR struct net_driver_s *dev,
   /* Trim l3/l4 header to reserve appdata */
 
   dev->d_iob = iob_trimhead(dev->d_iob, len);
-  if (dev->d_iob == NULL)
+  if (dev->d_iob == NULL || dev->d_iob->io_pktlen == 0)
     {
       /* No available data, clear device buffer */
 
+      iob_free_chain(dev->d_iob);
       goto clear;
     }
 
@@ -586,6 +587,13 @@ static void tcp_parse_option(FAR struct net_driver_s *dev,
 
           tmp16 = ((uint16_t)IPDATA(tcpiplen + 2 + i) << 8) |
                    (uint16_t)IPDATA(tcpiplen + 3 + i);
+#ifdef CONFIG_NET_TCPPROTO_OPTIONS
+          if (conn->user_mss > 0 && conn->user_mss < tcp_mss)
+            {
+              tcp_mss = conn->user_mss;
+            }
+#endif
+
           conn->mss = tmp16 > tcp_mss ? tcp_mss : tmp16;
         }
 #ifdef CONFIG_NET_TCP_WINDOW_SCALE
@@ -622,6 +630,40 @@ static void tcp_parse_option(FAR struct net_driver_s *dev,
         }
 
       i += IPDATA(tcpiplen + 1 + i);
+    }
+}
+
+/****************************************************************************
+ * Name: tcp_clear_zero_probe
+ *
+ * Description:
+ *   clear the TCP zero window probe
+ *
+ * Input Parameters:
+ *   conn   - The TCP connection of interest
+ *   tcp    - Header of TCP structure
+ *
+ * Returned Value:
+ *   None
+ *
+ * Assumptions:
+ *   The network is locked.
+ *
+ ****************************************************************************/
+
+static void tcp_clear_zero_probe(FAR struct tcp_conn_s *conn,
+                                 FAR struct tcp_hdr_s *tcp)
+{
+  /* If the receive window is not 0,
+   * the zero window probe timer needs to be cleared
+   */
+
+  if ((tcp->wnd[0] || tcp->wnd[1]) && conn->zero_probe &&
+      (tcp->flags & TCP_ACK) != 0)
+    {
+      conn->zero_probe = false;
+      conn->nrtx = 0;
+      conn->timer = 0;
     }
 }
 
@@ -748,11 +790,17 @@ static void tcp_input(FAR struct net_driver_s *dev, uint8_t domain,
 #endif
 
 #if defined(CONFIG_NET_IPv4) && defined(CONFIG_NET_IPv6)
-      if (tcp_islistener(&uaddr, tmp16, domain))
+      if ((conn = tcp_findlistener(&uaddr, tmp16, domain)) != NULL)
 #else
-      if (tcp_islistener(&uaddr, tmp16))
+      if ((conn = tcp_findlistener(&uaddr, tmp16)) != NULL)
 #endif
         {
+          if (!tcp_backlogavailable(conn))
+            {
+              nerr("ERROR: no free containers for TCP BACKLOG!\n");
+              goto drop;
+            }
+
           /* We matched the incoming packet with a connection in LISTEN.
            * We now need to create a new connection and send a SYNACK in
            * response.
@@ -762,7 +810,7 @@ static void tcp_input(FAR struct net_driver_s *dev, uint8_t domain,
            * any user application to accept it.
            */
 
-          conn = tcp_alloc_accept(dev, tcp);
+          conn = tcp_alloc_accept(dev, tcp, conn);
           if (conn)
             {
               /* The connection structure was successfully allocated and has
@@ -1141,11 +1189,18 @@ found:
       tcp_update_retrantimer(conn, conn->rto);
     }
 
+  tcp_clear_zero_probe(conn, tcp);
+
   /* Update the connection's window size */
 
   if ((tcp->flags & TCP_ACK) != 0 &&
       (conn->tcpstateflags & TCP_STATE_MASK) != TCP_SYN_RCVD)
     {
+#ifdef CONFIG_NET_TCP_CC_NEWRENO
+      /* If the packet is ack, update the cc var. */
+
+      tcp_cc_recv_ack(conn, tcp);
+#endif
       if (tcp_snd_wnd_update(conn, tcp))
         {
           /* Window updated, set the acknowledged flag. */
@@ -1216,6 +1271,9 @@ found:
             tcp_snd_wnd_init(conn, tcp);
             tcp_snd_wnd_update(conn, tcp);
 
+#ifdef CONFIG_NET_TCP_CC_NEWRENO
+            tcp_cc_update(conn, tcp);
+#endif
             flags               = TCP_CONNECTED;
             ninfo("TCP state: TCP_ESTABLISHED\n");
 
@@ -1265,6 +1323,9 @@ found:
             tcp_snd_wnd_init(conn, tcp);
             tcp_snd_wnd_update(conn, tcp);
 
+#ifdef CONFIG_NET_TCP_CC_NEWRENO
+            tcp_cc_update(conn, tcp);
+#endif
             net_incr32(conn->rcvseq, 1); /* ack SYN */
             conn->tx_unacked    = 0;
 
@@ -1545,7 +1606,15 @@ found:
 
         if (dev->d_len > 0)
           {
-            tcp_send(dev, conn, TCP_ACK, tcpiplen);
+            /* Due to RFC 2525, Section 2.17, we SHOULD send RST if we can no
+             * longer read any received data. Also set state into TCP_CLOSED
+             * because the peer will not send FIN after RST received.
+             *
+             * TODO: Modify shutdown behavior to allow read in FIN_WAIT.
+             */
+
+            conn->tcpstateflags = TCP_CLOSED;
+            tcp_reset(dev, conn);
             return;
           }
 
@@ -1572,7 +1641,13 @@ found:
 
         if (dev->d_len > 0)
           {
-            tcp_send(dev, conn, TCP_ACK, tcpiplen);
+            /* Due to RFC 2525, Section 2.17, we SHOULD send RST if we can no
+             * longer read any received data. Also set state into TCP_CLOSED
+             * because the peer will not send FIN after RST received.
+             */
+
+            conn->tcpstateflags = TCP_CLOSED;
+            tcp_reset(dev, conn);
             return;
           }
 

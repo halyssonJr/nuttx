@@ -89,7 +89,7 @@
 #endif
 
 #ifdef CONFIG_SAMV7_QSPI_DMA
-# define SAMV7_QSPI0_DMA true
+#  define SAMV7_QSPI0_DMA true
 #endif
 
 #ifndef CONFIG_SAMV7_QSPI_DMA
@@ -206,7 +206,7 @@ struct sam_qspidev_s
 static bool     qspi_checkreg(struct sam_qspidev_s *priv, bool wr,
                   uint32_t value, uint32_t address);
 #else
-# define        qspi_checkreg(priv,wr,value,address) (false)
+#  define       qspi_checkreg(priv,wr,value,address) (false)
 #endif
 
 static inline uint32_t qspi_getreg(struct sam_qspidev_s *priv,
@@ -217,7 +217,7 @@ static inline void qspi_putreg(struct sam_qspidev_s *priv, uint32_t value,
 #ifdef CONFIG_DEBUG_SPI_INFO
 static void     qspi_dumpregs(struct sam_qspidev_s *priv, const char *msg);
 #else
-# define        qspi_dumpregs(priv,msg)
+#  define       qspi_dumpregs(priv,msg)
 #endif
 
 /* DMA support */
@@ -292,6 +292,9 @@ static const struct qspi_ops_s g_qspi0ops =
   .setfrequency      = qspi_setfrequency,
   .setmode           = qspi_setmode,
   .setbits           = qspi_setbits,
+#ifdef CONFIG_QSPI_HWFEATURES
+  .hwfeatures        = NULL,
+#endif
   .command           = qspi_command,
   .memory            = qspi_memory,
   .alloc             = qspi_alloc,
@@ -1089,7 +1092,7 @@ static uint32_t qspi_setfrequency(struct qspi_dev_s *dev, uint32_t frequency)
 #endif
   uint32_t regval;
 
-  spiinfo("frequency=%"PRId32"\n", frequency);
+  spiinfo("frequency=%"PRIu32"\n", frequency);
   DEBUGASSERT(priv);
 
   /* Check if the requested frequency is the same as the frequency
@@ -1179,14 +1182,14 @@ static uint32_t qspi_setfrequency(struct qspi_dev_s *dev, uint32_t frequency)
   /* Calculate the new actual frequency */
 
   actual = SAM_QSPI_CLOCK / scbr;
-  spiinfo("SCBR=%"PRId32" actual=%"PRId32"\n", scbr, actual);
+  spiinfo("SCBR=%"PRIu32" actual=%"PRIu32"\n", scbr, actual);
 
   /* Save the frequency setting */
 
   priv->frequency = frequency;
   priv->actual    = actual;
 
-  spiinfo("Frequency %"PRId32"->%"PRId32"\n", frequency, actual);
+  spiinfo("Frequency %"PRIu32"->%"PRIu32"\n", frequency, actual);
   return actual;
 }
 
@@ -1398,7 +1401,6 @@ static int qspi_command(struct qspi_dev_s *dev,
   if (QSPICMD_ISDATA(cmdinfo->flags))
     {
       DEBUGASSERT(cmdinfo->buffer != NULL && cmdinfo->buflen > 0);
-      DEBUGASSERT(IS_ALIGNED(cmdinfo->buffer));
 
       /* Write Instruction Frame Register:
        *
@@ -1548,7 +1550,7 @@ static int qspi_memory(struct qspi_dev_s *dev,
          (unsigned long)meminfo->addr, meminfo->addrlen);
   spiinfo("  %s Data:\n",
           QSPIMEM_ISWRITE(meminfo->flags) ? "Write" : "Read");
-  spiinfo("    buffer/length: %p/%"PRId32"\n",
+  spiinfo("    buffer/length: %p/%"PRIu32"\n",
           meminfo->buffer, meminfo->buflen);
 
 #ifdef CONFIG_SAMV7_QSPI_DMA

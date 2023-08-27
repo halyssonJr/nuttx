@@ -157,7 +157,7 @@ aligned_data(XLAT_TABLE_ENTRIES * sizeof(uint64_t));
 
 /* NuttX RTOS execution regions with appropriate attributes */
 
-static const struct arm_mmu_region mmu_nxrt_regions[] =
+static const struct arm_mmu_region g_mmu_nxrt_regions[] =
 {
   /* Mark text segment cacheable,read only and executable */
 
@@ -184,10 +184,10 @@ static const struct arm_mmu_region mmu_nxrt_regions[] =
                         MT_NORMAL | MT_RW | MT_SECURE),
 };
 
-static const struct arm_mmu_config mmu_nxrt_config =
+static const struct arm_mmu_config g_mmu_nxrt_config =
 {
-  .num_regions = nitems(mmu_nxrt_regions),
-  .mmu_regions = mmu_nxrt_regions,
+  .num_regions = nitems(g_mmu_nxrt_regions),
+  .mmu_regions = g_mmu_nxrt_regions,
 };
 
 /***************************************************************************
@@ -198,9 +198,9 @@ static const struct arm_mmu_config mmu_nxrt_config =
 
 static uint64_t get_tcr(int el)
 {
-  uint64_t  tcr;
-  uint64_t  va_bits = CONFIG_ARM64_VA_BITS;
-  uint64_t  tcr_ps_bits;
+  uint64_t tcr;
+  uint64_t va_bits = CONFIG_ARM64_VA_BITS;
+  uint64_t tcr_ps_bits;
 
   tcr_ps_bits = TCR_PS_BITS;
 
@@ -237,10 +237,10 @@ static int pte_desc_type(uint64_t *pte)
 
 static uint64_t *calculate_pte_index(uint64_t addr, int level)
 {
-  int           base_level = XLAT_TABLE_BASE_LEVEL;
-  uint64_t      *pte;
-  uint64_t      idx;
-  unsigned int  i;
+  int base_level = XLAT_TABLE_BASE_LEVEL;
+  uint64_t *pte;
+  uint64_t idx;
+  unsigned int i;
 
   /* Walk through all translation tables to find pte index */
 
@@ -288,8 +288,8 @@ static void set_pte_table_desc(uint64_t *pte, uint64_t *table,
 static void set_pte_block_desc(uint64_t *pte, uint64_t addr_pa,
                                unsigned int attrs, unsigned int level)
 {
-  uint64_t      desc = addr_pa;
-  unsigned int  mem_type;
+  uint64_t desc = addr_pa;
+  unsigned int mem_type;
 
   desc |= (level == 3) ? PTE_PAGE_DESC : PTE_BLOCK_DESC;
 
@@ -307,8 +307,8 @@ static void set_pte_block_desc(uint64_t *pte, uint64_t addr_pa,
 
   /* memory attribute index field */
 
-  mem_type  = MT_TYPE(attrs);
-  desc      |= PTE_BLOCK_DESC_MEMTYPE(mem_type);
+  mem_type = MT_TYPE(attrs);
+  desc |= PTE_BLOCK_DESC_MEMTYPE(mem_type);
 
   switch (mem_type)
     {
@@ -326,8 +326,8 @@ static void set_pte_block_desc(uint64_t *pte, uint64_t addr_pa,
 
         /* Map device memory as execute-never */
 
-        desc  |= PTE_BLOCK_DESC_PXN;
-        desc  |= PTE_BLOCK_DESC_UXN;
+        desc |= PTE_BLOCK_DESC_PXN;
+        desc |= PTE_BLOCK_DESC_UXN;
         break;
       }
 
@@ -383,9 +383,9 @@ static uint64_t *new_prealloc_table(void)
 
 static void split_pte_block_desc(uint64_t *pte, int level)
 {
-  uint64_t      old_block_desc = *pte;
-  uint64_t      *new_table;
-  unsigned int  i = 0;
+  uint64_t old_block_desc = *pte;
+  uint64_t *new_table;
+  unsigned int i = 0;
 
   /* get address size shift bits for next level */
 
@@ -416,17 +416,17 @@ static void split_pte_block_desc(uint64_t *pte, int level)
 
 static void init_xlat_tables(const struct arm_mmu_region *region)
 {
-  uint64_t      *pte;
-  uint64_t      virt    = region->base_va;
-  uint64_t      phys    = region->base_pa;
-  uint64_t      size    = region->size;
-  uint64_t      attrs   = region->attrs;
-  uint64_t      level_size;
-  uint64_t      *new_table;
-  unsigned int  level = XLAT_TABLE_BASE_LEVEL;
+  unsigned int level = XLAT_TABLE_BASE_LEVEL;
+  uint64_t virt = region->base_va;
+  uint64_t phys = region->base_pa;
+  uint64_t size = region->size;
+  uint64_t attrs = region->attrs;
+  uint64_t *pte;
+  uint64_t *new_table;
+  uint64_t level_size;
 
 #ifdef CONFIG_MMU_DEBUG
-  sinfo("mmap: virt %llx phys %llx size %llx\n", virt, phys, size);
+  sinfo("mmap: virt %lux phys %lux size %lux\n", virt, phys, size);
 #endif
 
   /* check minimum alignment requirement for given mmap region */
@@ -454,9 +454,9 @@ static void init_xlat_tables(const struct arm_mmu_region *region)
            */
 
           set_pte_block_desc(pte, phys, attrs, level);
-          virt  += level_size;
-          phys  += level_size;
-          size  -= level_size;
+          virt += level_size;
+          phys += level_size;
+          size -= level_size;
 
           /* Range is mapped, start again for next range */
 
@@ -484,15 +484,15 @@ static void init_xlat_tables(const struct arm_mmu_region *region)
 
 static void setup_page_tables(void)
 {
-  unsigned int                  index;
-  const struct arm_mmu_region   *region;
-  uint64_t                      max_va = 0, max_pa = 0;
+  uint64_t max_va = 0, max_pa = 0;
+  const struct arm_mmu_region *region;
+  unsigned int index;
 
-  for (index = 0; index < mmu_config.num_regions; index++)
+  for (index = 0; index < g_mmu_config.num_regions; index++)
     {
-      region    = &mmu_config.mmu_regions[index];
-      max_va    = MAX(max_va, region->base_va + region->size);
-      max_pa    = MAX(max_pa, region->base_pa + region->size);
+      region = &g_mmu_config.mmu_regions[index];
+      max_va = MAX(max_va, region->base_va + region->size);
+      max_pa = MAX(max_pa, region->base_pa + region->size);
     }
 
   __MMU_ASSERT(max_va <= (1ULL << CONFIG_ARM64_VA_BITS),
@@ -502,9 +502,9 @@ static void setup_page_tables(void)
 
   /* create translation tables for user provided platform regions */
 
-  for (index = 0; index < mmu_config.num_regions; index++)
+  for (index = 0; index < g_mmu_config.num_regions; index++)
     {
-      region = &mmu_config.mmu_regions[index];
+      region = &g_mmu_config.mmu_regions[index];
       if (region->size || region->attrs)
         {
           init_xlat_tables(region);
@@ -513,9 +513,9 @@ static void setup_page_tables(void)
 
   /* setup translation table for mirtos execution regions */
 
-  for (index = 0; index < mmu_nxrt_config.num_regions; index++)
+  for (index = 0; index < g_mmu_nxrt_config.num_regions; index++)
     {
-      region = &mmu_nxrt_config.mmu_regions[index];
+      region = &g_mmu_nxrt_config.mmu_regions[index];
       if (region->size || region->attrs)
         {
           init_xlat_tables(region);
@@ -541,7 +541,11 @@ static void enable_mmu_el1(unsigned int flags)
   /* Enable the MMU and data cache */
 
   value = read_sysreg(sctlr_el1);
-  write_sysreg((value | SCTLR_M_BIT | SCTLR_C_BIT), sctlr_el1);
+  write_sysreg((value | SCTLR_M_BIT
+#ifndef CONFIG_ARM64_DCACHE_DISABLE
+               | SCTLR_C_BIT
+#endif
+               ), sctlr_el1);
 
   /* Ensure the MMU enable takes effect immediately */
 
@@ -557,8 +561,8 @@ static void enable_mmu_el1(unsigned int flags)
 
 int arm_mmu_set_memregion(const struct arm_mmu_region *region)
 {
-  uint64_t  virt    = region->base_va;
-  uint64_t  size    = region->size;
+  uint64_t virt = region->base_va;
+  uint64_t size = region->size;
 
   if (((virt & (PAGE_SIZE - 1)) == 0) &&
       ((size & (PAGE_SIZE - 1)) == 0))
@@ -582,10 +586,8 @@ int arm_mmu_set_memregion(const struct arm_mmu_region *region)
 
 int arm64_mmu_init(bool is_primary_core)
 {
-  uint64_t  val;
-  unsigned  flags = 0;
-  uint64_t  ctr_el0;
-  uint32_t  dminline;
+  uint64_t val;
+  unsigned flags = 0;
 
   /* Current MMU code supports only EL1 */
 
@@ -617,12 +619,6 @@ int arm64_mmu_init(bool is_primary_core)
   /* currently only EL1 is supported */
 
   enable_mmu_el1(flags);
-
-  /* get cache line size */
-
-  ctr_el0 = read_sysreg(CTR_EL0);
-  dminline = (ctr_el0 >> CTR_EL0_DMINLINE_SHIFT) & CTR_EL0_DMINLINE_MASK;
-  dcache_line_size = 4 << dminline;
 
   return 0;
 }

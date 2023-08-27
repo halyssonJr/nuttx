@@ -75,7 +75,7 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 {
   struct inode_search_s desc;
   FAR struct inode *inode;
-#ifndef CONFIG_DISABLE_MOUNTPOINT
+#if !defined(CONFIG_DISABLE_MOUNTPOINT) || defined(CONFIG_PSEUDOFS_FILE)
   mode_t mode = 0666;
 #endif
   int ret;
@@ -89,7 +89,7 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 
   /* If the file is opened for creation, then get the mode bits */
 
-  if ((oflags & (O_WRONLY | O_CREAT)) != 0)
+  if ((oflags & O_CREAT) != 0)
     {
       mode = va_arg(ap, mode_t);
     }
@@ -104,12 +104,22 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
   ret = inode_find(&desc);
   if (ret < 0)
     {
-      /* "O_CREAT is not set and the named file does not exist.  Or, a
-       * directory component in pathname does not exist or is a dangling
-       * symbolic link."
-       */
+#ifdef CONFIG_PSEUDOFS_FILE
+      if ((oflags & O_CREAT) != 0)
+        {
+          ret = pseudofile_create(&desc.node, path, mode);
+        }
+#endif
 
-      goto errout_with_search;
+      if (ret < 0)
+        {
+          /* "O_CREAT is not set and the named file does not exist.  Or, a
+           * directory component in pathname does not exist or is a dangling
+           * symbolic link."
+           */
+
+          goto errout_with_search;
+        }
     }
 
   /* Get the search results */
@@ -156,10 +166,9 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
 
   /* Associate the inode with a file structure */
 
+  memset(filep, 0, sizeof(*filep));
   filep->f_oflags = oflags;
-  filep->f_pos    = 0;
   filep->f_inode  = inode;
-  filep->f_priv   = NULL;
 
   /* Perform the driver open operation.  NOTE that the open method may be
    * called many times.  The driver/mountpoint logic should handle this
@@ -179,7 +188,7 @@ static int file_vopen(FAR struct file *filep, FAR const char *path,
         }
     }
 #endif
-  else if (INODE_IS_DRIVER(inode))
+  else if (INODE_IS_DRIVER(inode) || INODE_IS_PIPE(inode))
     {
       if (inode->u.i_ops->open != NULL)
         {
@@ -224,6 +233,7 @@ errout_with_search:
  *   applications.
  *
  * Input Parameters:
+ *   tcb    - Address of the task's TCB
  *   path   - The full path to the file to be opened.
  *   oflags - open flags.
  *   ap     - Variable argument list, may include 'mode_t mode'
@@ -234,7 +244,8 @@ errout_with_search:
  *
  ****************************************************************************/
 
-static int nx_vopen(FAR const char *path, int oflags, va_list ap)
+static int nx_vopen(FAR struct tcb_s *tcb,
+                    FAR const char *path, int oflags, va_list ap)
 {
   struct file filep;
   int ret;
@@ -250,8 +261,8 @@ static int nx_vopen(FAR const char *path, int oflags, va_list ap)
 
   /* Allocate a new file descriptor for the inode */
 
-  fd = file_allocate(filep.f_inode, filep.f_oflags,
-                     filep.f_pos, filep.f_priv, 0, false);
+  fd = file_allocate_from_tcb(tcb, filep.f_inode, filep.f_oflags,
+                              filep.f_pos, filep.f_priv, 0, false);
   if (fd < 0)
     {
       file_close(&filep);
@@ -286,18 +297,20 @@ static int nx_vopen(FAR const char *path, int oflags, va_list ap)
 
 int inode_checkflags(FAR struct inode *inode, int oflags)
 {
+  FAR const struct file_operations *ops = inode->u.i_ops;
+
   if (INODE_IS_PSEUDODIR(inode))
     {
       return OK;
     }
 
-  if (inode->u.i_ops == NULL)
+  if (ops == NULL)
     {
       return -ENXIO;
     }
 
-  if (((oflags & O_RDOK) != 0 && !inode->u.i_ops->read) ||
-      ((oflags & O_WROK) != 0 && !inode->u.i_ops->write))
+  if (((oflags & O_RDOK) != 0 && !ops->read && !ops->ioctl) ||
+      ((oflags & O_WROK) != 0 && !ops->write && !ops->ioctl))
     {
       return -EACCES;
     }
@@ -342,6 +355,44 @@ int file_open(FAR struct file *filep, FAR const char *path, int oflags, ...)
 }
 
 /****************************************************************************
+ * Name: nx_open_from_tcb
+ *
+ * Description:
+ *   nx_open_from_tcb() is similar to the standard 'open' interface except
+ *   that it is not a cancellation point and it does not modify the errno
+ *   variable.
+ *
+ *   nx_open_from_tcb() is an internal NuttX interface and should not be
+ *   called from applications.
+ *
+ * Input Parameters:
+ *   tcb    - Address of the task's TCB
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ...    - Variable number of arguments, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   The new file descriptor is returned on success; a negated errno value is
+ *   returned on any failure.
+ *
+ ****************************************************************************/
+
+int nx_open_from_tcb(FAR struct tcb_s *tcb,
+                     FAR const char *path, int oflags, ...)
+{
+  va_list ap;
+  int fd;
+
+  /* Let nx_vopen() do all of the work */
+
+  va_start(ap, oflags);
+  fd = nx_vopen(tcb, path, oflags, ap);
+  va_end(ap);
+
+  return fd;
+}
+
+/****************************************************************************
  * Name: nx_open
  *
  * Description:
@@ -370,7 +421,7 @@ int nx_open(FAR const char *path, int oflags, ...)
   /* Let nx_vopen() do all of the work */
 
   va_start(ap, oflags);
-  fd = nx_vopen(path, oflags, ap);
+  fd = nx_vopen(nxsched_self(), path, oflags, ap);
   va_end(ap);
 
   return fd;
@@ -400,7 +451,7 @@ int open(FAR const char *path, int oflags, ...)
   /* Let nx_vopen() do most of the work */
 
   va_start(ap, oflags);
-  fd = nx_vopen(path, oflags, ap);
+  fd = nx_vopen(nxsched_self(), path, oflags, ap);
   va_end(ap);
 
   /* Set the errno value if any errors were reported by nx_open() */

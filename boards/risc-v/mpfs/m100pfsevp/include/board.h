@@ -28,7 +28,7 @@
 #include <nuttx/config.h>
 
 #ifndef __ASSEMBLY__
-# include <stdint.h>
+#  include <stdint.h>
 #endif
 
 #include "mpfs_gpio.h"
@@ -58,6 +58,7 @@
 #define MPFS_MSS_RTC_TOGGLE_CLK      (1000000UL)
 #define MPFS_MSS_AXI_CLK           (300000000UL)
 #define MPFS_MSS_APB_AHB_CLK       (150000000UL)
+#define MPFS_FPGA_PERIPHERAL_CLK    (62500000UL)
 #define MPFS_FPGA_BCLK               (3000000UL)
 
 /* LED definitions **********************************************************/

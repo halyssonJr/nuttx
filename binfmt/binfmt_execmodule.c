@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -35,6 +36,7 @@
 #include <nuttx/arch.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/sched.h>
+#include <nuttx/spawn.h>
 #include <nuttx/binfmt/binfmt.h>
 
 #include "binfmt.h"
@@ -113,11 +115,12 @@ static void exec_ctors(FAR void *arg)
 
 int exec_module(FAR struct binary_s *binp,
                 FAR const char *filename, FAR char * const *argv,
-                FAR char * const *envp)
+                FAR char * const *envp,
+                FAR const posix_spawn_file_actions_t *actions)
 {
   FAR struct task_tcb_s *tcb;
 #if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
-  FAR struct arch_addrenv_s *addrenv = &binp->addrenv.addrenv;
+  FAR struct arch_addrenv_s *addrenv = &binp->addrenv->addrenv;
   FAR void *vheap;
 #endif
   FAR void *stackaddr = NULL;
@@ -165,7 +168,7 @@ int exec_module(FAR struct binary_s *binp,
 #if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
   /* Instantiate the address environment containing the user heap */
 
-  ret = addrenv_select(&binp->addrenv);
+  ret = addrenv_select(binp->addrenv, &binp->oldenv);
   if (ret < 0)
     {
       berr("ERROR: addrenv_select() failed: %d\n", ret);
@@ -182,6 +185,17 @@ int exec_module(FAR struct binary_s *binp,
   binfo("Initialize the user heap (heapsize=%zu)\n",
         up_addrenv_heapsize(addrenv));
   umm_initialize(vheap, up_addrenv_heapsize(addrenv));
+#endif
+
+#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_ARCH_KERNEL_STACK)
+  /* Allocate the kernel stack */
+
+  ret = up_addrenv_kstackalloc(&tcb->cmn);
+  if (ret < 0)
+    {
+      berr("ERROR: up_addrenv_kstackalloc() failed: %d\n", ret);
+      goto errout_with_addrenv;
+    }
 #endif
 
   /* Note that tcb->flags are not modified.  0=normal task */
@@ -216,16 +230,16 @@ int exec_module(FAR struct binary_s *binp,
   binfmt_freeargv(argv);
   binfmt_freeenv(envp);
 
-#if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_ARCH_KERNEL_STACK)
-  /* Allocate the kernel stack */
+  /* Perform file actions */
 
-  ret = up_addrenv_kstackalloc(&tcb->cmn);
-  if (ret < 0)
+  if (actions != NULL)
     {
-      berr("ERROR: up_addrenv_kstackalloc() failed: %d\n", ret);
-      goto errout_with_tcbinit;
+      ret = spawn_file_actions(&tcb->cmn, actions);
+      if (ret < 0)
+        {
+          goto errout_with_tcbinit;
+        }
     }
-#endif
 
 #ifdef CONFIG_PIC
   /* Add the D-Space address as the PIC base address.  By convention, this
@@ -242,7 +256,7 @@ int exec_module(FAR struct binary_s *binp,
 #ifdef CONFIG_ARCH_ADDRENV
   /* Attach the address environment to the new task */
 
-  ret = addrenv_attach((FAR struct tcb_s *)tcb, &binp->addrenv);
+  ret = addrenv_attach((FAR struct tcb_s *)tcb, binp->addrenv);
   if (ret < 0)
     {
       berr("ERROR: addrenv_attach() failed: %d\n", ret);
@@ -266,6 +280,18 @@ int exec_module(FAR struct binary_s *binp,
 
   pid = tcb->cmn.pid;
 
+#ifdef CONFIG_SCHED_USER_IDENTITY
+  if (binp->mode & S_ISUID)
+    {
+      tcb->cmn.group->tg_euid = binp->uid;
+    }
+
+  if (binp->mode & S_ISGID)
+    {
+      tcb->cmn.group->tg_egid = binp->gid;
+    }
+#endif
+
   /* Then activate the task at the provided priority */
 
   nxtask_activate((FAR struct tcb_s *)tcb);
@@ -273,7 +299,7 @@ int exec_module(FAR struct binary_s *binp,
 #if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
   /* Restore the address environment of the caller */
 
-  ret = addrenv_restore();
+  ret = addrenv_restore(binp->oldenv);
   if (ret < 0)
     {
       berr("ERROR: addrenv_restore() failed: %d\n", ret);
@@ -281,18 +307,22 @@ int exec_module(FAR struct binary_s *binp,
     }
 #endif
 
-  return (int)pid;
+  return pid;
 
-#if defined(CONFIG_ARCH_ADDRENV) || defined(CONFIG_ARCH_VMA_MAPPING)
 errout_with_tcbinit:
-  tcb->cmn.stack_alloc_ptr = NULL;
-  nxsched_release_tcb(&tcb->cmn, TCB_FLAG_TTYPE_TASK);
-  return ret;
+#ifndef CONFIG_BUILD_KERNEL
+  if (binp->stackaddr != NULL)
+    {
+      tcb->cmn.stack_alloc_ptr = NULL;
+    }
 #endif
+
+  nxtask_uninit(tcb);
+  return ret;
 
 errout_with_addrenv:
 #if defined(CONFIG_ARCH_ADDRENV) && defined(CONFIG_BUILD_KERNEL)
-  addrenv_restore();
+  addrenv_restore(binp->oldenv);
 errout_with_envp:
 #endif
   binfmt_freeenv(envp);

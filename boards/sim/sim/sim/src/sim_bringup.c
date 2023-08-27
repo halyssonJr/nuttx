@@ -53,6 +53,8 @@
 #include <nuttx/wireless/bluetooth/bt_null.h>
 #include <nuttx/wireless/bluetooth/bt_uart_shim.h>
 #include <nuttx/wireless/ieee802154/ieee802154_loopback.h>
+#include <nuttx/usb/adb.h>
+#include <nuttx/usb/rndis.h>
 
 #ifdef CONFIG_LCD_DEV
 #include <nuttx/lcd/lcd_dev.h>
@@ -292,16 +294,17 @@ int sim_bringup(void)
     }
 #endif
 
-#ifdef CONFIG_SIM_VIDEO
+#ifdef CONFIG_SIM_CAMERA
   /* Initialize and register the simulated video driver */
 
-  ret = video_initialize(CONFIG_SIM_VIDEO_DEV_PATH);
+  sim_camera_initialize();
+
+  ret = video_initialize(CONFIG_SIM_CAMERA_DEV_PATH);
   if (ret < 0)
     {
       syslog(LOG_ERR, "ERROR: video_initialize() failed: %d\n", ret);
     }
 
-  sim_video_initialize();
 #endif
 
 #ifdef CONFIG_LCD
@@ -466,9 +469,9 @@ int sim_bringup(void)
 #endif
 
 #ifdef CONFIG_DEV_RPMSG
-  rpmsgdev_register("server", "/dev/console", "/dev/server-console");
-  rpmsgdev_register("server", "/dev/null", "/dev/server-null");
-  rpmsgdev_register("server", "/dev/ttyUSB0", "/dev/ttyUSB0");
+  rpmsgdev_register("server", "/dev/console", "/dev/server-console", 0);
+  rpmsgdev_register("server", "/dev/null", "/dev/server-null", 0);
+  rpmsgdev_register("server", "/dev/ttyUSB0", "/dev/ttyUSB0", 0);
 #endif
 
 #ifdef CONFIG_BLK_RPMSG
@@ -494,6 +497,25 @@ int sim_bringup(void)
 
 #ifdef CONFIG_RC_DUMMY
   rc_dummy_initialize(0);
+#endif
+
+#if defined(CONFIG_USBADB) && \
+    !defined(CONFIG_USBADB_COMPOSITE) && \
+    !defined(CONFIG_BOARDCTL_USBDEVCTRL)
+  usbdev_adb_initialize();
+#endif
+
+#if defined(CONFIG_RNDIS) && !defined(CONFIG_RNDIS_COMPOSITE)
+  /* Set up a MAC address for the RNDIS device. */
+
+  uint8_t mac[6];
+  mac[0] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 5)) & 0xff;
+  mac[1] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 4)) & 0xff;
+  mac[2] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 3)) & 0xff;
+  mac[3] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 2)) & 0xff;
+  mac[4] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 1)) & 0xff;
+  mac[5] = (CONFIG_SIM_RNDIS_MACADDR >> (8 * 0)) & 0xff;
+  usbdev_rndis_initialize(mac);
 #endif
 
   return ret;

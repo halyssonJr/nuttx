@@ -41,7 +41,7 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#if defined(CONFIG_NET_TCP) && !defined(CONFIG_NET_TCP_NO_STACK)
+#ifdef NET_TCP_HAVE_STACK
 
 #ifdef CONFIG_NET_IPv6
 #  define TCP_LINELEN 180
@@ -60,16 +60,13 @@ static ssize_t netprocfs_tcpstats(FAR struct netprocfs_file_s *priv,
   int addrlen = (domain == PF_INET) ?
                 INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
   FAR struct tcp_conn_s *conn = NULL;
-  char remote[INET6_ADDRSTRLEN + 1];
-  char local[INET6_ADDRSTRLEN + 1];
+  char remote[INET6_ADDRSTRLEN];
+  char local[INET6_ADDRSTRLEN];
   int len = 0;
-  void *laddr;
-  void *raddr;
+  FAR void *laddr;
+  FAR void *raddr;
 
   net_lock();
-
-  local[addrlen] = '\0';
-  remote[addrlen] = '\0';
 
   while ((conn = tcp_nextconn(conn)) != NULL)
     {
@@ -90,25 +87,8 @@ static ssize_t netprocfs_tcpstats(FAR struct netprocfs_file_s *priv,
           break;
         }
 
-#ifdef CONFIG_NET_IPv4
-#  ifdef CONFIG_NET_IPv6
-      if (domain == PF_INET)
-#  endif /* CONFIG_NET_IPv6 */
-        {
-          laddr = &conn->u.ipv4.laddr;
-          raddr = &conn->u.ipv4.raddr;
-        }
-#endif /* CONFIG_NET_IPv4 */
-
-#ifdef CONFIG_NET_IPv6
-#  ifdef CONFIG_NET_IPv4
-      else
-#  endif /* CONFIG_NET_IPv4 */
-        {
-          laddr = &conn->u.ipv6.laddr;
-          raddr = &conn->u.ipv6.raddr;
-        }
-#endif /* CONFIG_NET_IPv6 */
+      laddr = net_ip_binding_laddr(&conn->u, domain);
+      raddr = net_ip_binding_raddr(&conn->u, domain);
 
       len += snprintf(buffer + len, buflen - len,
                       "    %2" PRIu8
@@ -215,4 +195,4 @@ ssize_t netprocfs_read_tcpstats(FAR struct netprocfs_file_s *priv,
   return len;
 }
 
-#endif /* CONFIG_NET_TCP && !CONFIG_NET_TCP_NO_STACK */
+#endif /* NET_TCP_HAVE_STACK */

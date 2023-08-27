@@ -34,7 +34,6 @@
 #include <nuttx/elf.h>
 #include <nuttx/kmalloc.h>
 #include <nuttx/binfmt/elf.h>
-#include <nuttx/binfmt/symtab.h>
 
 #include "libelf.h"
 
@@ -51,9 +50,9 @@
 #endif
 
 #ifdef CONFIG_ELF_DUMPBUFFER
-# define elf_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
+#  define elf_dumpbuffer(m,b,n) binfodumpbuffer(m,b,n)
 #else
-# define elf_dumpbuffer(m,b,n)
+#  define elf_dumpbuffer(m,b,n)
 #endif
 
 /****************************************************************************
@@ -570,17 +569,6 @@ int elf_bind(FAR struct elf_loadinfo_s *loadinfo,
   ret = elf_findsymtab(loadinfo);
   if (ret < 0)
     {
-      return ret;
-    }
-
-  /* Allocate an I/O buffer.  This buffer is used by elf_symname() to
-   * accumulate the variable length symbol name.
-   */
-
-  ret = elf_allocbuffer(loadinfo);
-  if (ret < 0)
-    {
-      berr("elf_allocbuffer failed: %d\n", ret);
       return ret;
     }
 

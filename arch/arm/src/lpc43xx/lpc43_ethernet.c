@@ -42,7 +42,9 @@
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 #include <nuttx/net/mii.h>
+#include <nuttx/net/ip.h>
 #include <nuttx/net/netdev.h>
+
 #if defined(CONFIG_NET_PKT)
 #  include <nuttx/net/pkt.h>
 #endif
@@ -552,9 +554,9 @@ static uint32_t lpc43_getreg(uint32_t addr);
 static void lpc43_putreg(uint32_t val, uint32_t addr);
 static void lpc43_checksetup(void);
 #else
-# define lpc43_getreg(addr)      getreg32(addr)
-# define lpc43_putreg(val,addr)  putreg32(val,addr)
-# define lpc43_checksetup()
+#  define lpc43_getreg(addr)     getreg32(addr)
+#  define lpc43_putreg(val,addr) putreg32(val,addr)
+#  define lpc43_checksetup()
 #endif
 
 /* Free buffer management */
@@ -2071,11 +2073,9 @@ static int lpc43_ifup(struct net_driver_s *dev)
   int ret;
 
 #ifdef CONFIG_NET_IPv4
-  ninfo("Bringing up: %d.%d.%d.%d\n",
-        (int)(dev->d_ipaddr & 0xff),
-        (int)((dev->d_ipaddr >> 8) & 0xff),
-        (int)((dev->d_ipaddr >> 16) & 0xff),
-        (int)(dev->d_ipaddr >> 24));
+  ninfo("Bringing up: %u.%u.%u.%u\n",
+        ip4_addr1(dev->d_ipaddr), ip4_addr2(dev->d_ipaddr),
+        ip4_addr3(dev->d_ipaddr), ip4_addr4(dev->d_ipaddr));
 #endif
 #ifdef CONFIG_NET_IPv6
   ninfo("Bringing up: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",

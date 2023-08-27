@@ -37,7 +37,6 @@
 #include <debug.h>
 
 #include <nuttx/fs/fs.h>
-#include <nuttx/fs/binfs.h>
 #include <nuttx/fs/ioctl.h>
 #include <nuttx/lib/builtin.h>
 
@@ -101,7 +100,7 @@ static int     binfs_stat(FAR struct inode *mountpt, FAR const char *relpath,
  * with any compiler.
  */
 
-const struct mountpt_operations binfs_operations =
+const struct mountpt_operations g_binfs_operations =
 {
   binfs_open,        /* open */
   binfs_close,       /* close */
@@ -225,13 +224,14 @@ static int binfs_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
         }
       else
         {
-          ret = inode_getpath(filep->f_inode, ptr);
+          ret = inode_getpath(filep->f_inode, ptr, PATH_MAX);
           if (ret < 0)
             {
               return ret;
             }
 
-          strcat(ptr, builtin_getname((int)((uintptr_t)filep->f_priv)));
+          strlcat(ptr, builtin_getname((int)((uintptr_t)filep->f_priv)),
+                  PATH_MAX);
         }
     }
   else
@@ -449,7 +449,6 @@ static int binfs_statfs(struct inode *mountpt, struct statfs *buf)
 
   /* Fill in the statfs info */
 
-  memset(buf, 0, sizeof(struct statfs));
   buf->f_type    = BINFS_MAGIC;
   buf->f_bsize   = 0;
   buf->f_blocks  = 0;
@@ -470,6 +469,7 @@ static int binfs_stat(struct inode *mountpt,
                       const char *relpath, struct stat *buf)
 {
   finfo("Entry\n");
+  int index;
 
   /* The requested directory must be the volume-relative "root" directory */
 
@@ -477,7 +477,8 @@ static int binfs_stat(struct inode *mountpt,
     {
       /* Check if there is a file with this name. */
 
-      if (builtin_isavail(relpath) < 0)
+      index = builtin_isavail(relpath);
+      if (index < 0)
         {
           return -ENOENT;
         }
@@ -485,6 +486,12 @@ static int binfs_stat(struct inode *mountpt,
       /* It's a execute-only file name */
 
       buf->st_mode = S_IFREG | S_IXOTH | S_IXGRP | S_IXUSR;
+
+#ifdef CONFIG_SCHED_USER_IDENTITY
+      buf->st_uid   = builtin_getuid(index);
+      buf->st_gid   = builtin_getgid(index);
+      buf->st_mode |= builtin_getmode(index);
+#endif
     }
   else
     {

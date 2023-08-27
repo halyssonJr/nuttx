@@ -117,7 +117,7 @@ enum net_lltype_e
 
 /* This defines a bitmap big enough for one bit for each socket option */
 
-typedef uint16_t sockopt_t;
+typedef uint32_t sockopt_t;
 
 /* This defines the storage size of a timeout value.  This effects only
  * range of supported timeout values.  With an LSB in seciseconds, the
@@ -156,7 +156,7 @@ struct sock_intf_s
                     FAR const struct sockaddr *addr, socklen_t addrlen);
   CODE int        (*si_accept)(FAR struct socket *psock,
                     FAR struct sockaddr *addr, FAR socklen_t *addrlen,
-                    FAR struct socket *newsock);
+                    FAR struct socket *newsock, int flags);
   CODE int        (*si_poll)(FAR struct socket *psock,
                     FAR struct pollfd *fds, bool setup);
   CODE ssize_t    (*si_sendmsg)(FAR struct socket *psock,
@@ -228,6 +228,9 @@ struct socket_conn_s
 
   uint8_t       s_tos;       /* IPv4 Type of Service */
 #define s_tclass s_tos       /* IPv6 traffic class defination */
+#if defined(CONFIG_NET_IPv4) || defined(CONFIG_NET_IPv6)
+  uint8_t       ttl;         /* Default time-to-live */
+#endif
 
   /* Connection-specific content may follow */
 };

@@ -69,7 +69,7 @@
 #    define CONSOLE_DEV     g_uart0_dev     /* UART0 is console */
 #    define TTYS0_DEV       g_uart0_dev     /* UART0 is ttyS0 */
 #    define UART0_ASSIGNED      1
-# elif defined(CONFIG_UART1_SERIAL_CONSOLE)
+#  elif defined(CONFIG_UART1_SERIAL_CONSOLE)
 #    define CONSOLE_DEV         g_uart1_dev  /* UART1 is console */
 #    define TTYS0_DEV           g_uart1_dev  /* UART1 is ttyS0 */
 #    define UART1_ASSIGNED      1
@@ -1058,7 +1058,7 @@ void xtensa_serialinit(void)
 
   uart_register("/dev/ttyS0", &TTYS0_DEV);
 
-#ifdef	TTYS1_DEV
+#ifdef TTYS1_DEV
   uart_register("/dev/ttyS1", &TTYS1_DEV);
 #endif
 }

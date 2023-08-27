@@ -51,6 +51,7 @@
 #include <nuttx/compiler.h>
 #include <nuttx/streams.h>
 #include <nuttx/allsyms.h>
+#include <nuttx/symtab.h>
 
 #include "lib_dtoa_engine.h"
 #include "lib_ultoa_invert.h"
@@ -68,6 +69,8 @@
 #endif
 
 #define stream_putc(c,stream)  (total_len++, lib_stream_putc(stream, c))
+#define stream_puts(buf, len, stream) \
+        (total_len += len, lib_stream_puts(stream, buf, len))
 
 /* Order is relevant here and matches order in format string */
 
@@ -151,23 +154,6 @@ static int vsprintf_internal(FAR struct lib_outstream_s *stream,
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
-
-#ifdef CONFIG_ALLSYMS
-static int sprintf_internal(FAR struct lib_outstream_s *stream,
-                            FAR const IPTR char *fmt, ...)
-{
-  va_list ap;
-  int     n;
-
-  /* Then let vsprintf_internal do the real work */
-
-  va_start(ap, fmt);
-  n = vsprintf_internal(stream, NULL, 0, fmt, ap);
-  va_end(ap);
-
-  return n;
-}
-#endif
 
 static int vsprintf_internal(FAR struct lib_outstream_s *stream,
                              FAR struct arg_s *arglist, int numargs,
@@ -814,11 +800,6 @@ flt_oper:
 
                   if (--n < -prec)
                     {
-                      if ((flags & FL_ALT) != 0 && n == -1)
-                        {
-                          stream_putc('.', stream);
-                        }
-
                       break;
                     }
 
@@ -833,6 +814,11 @@ flt_oper:
                 }
 
               stream_putc(out, stream);
+
+              if ((flags & FL_ALT) != 0 && n == -1)
+                {
+                  stream_putc('.', stream);
+                }
             }
           else
             {
@@ -875,6 +861,12 @@ flt_oper:
 
               stream_putc(ndigs, stream);
               c = __ultoa_invert(exp, (FAR char *)buf, 10) - (FAR char *)buf;
+
+              if (exp >= 0 && exp <= 9)
+                {
+                  stream_putc('0', stream);
+                }
+
               while (c > 0)
                 {
                   stream_putc(buf[c - 1], stream);
@@ -947,16 +939,9 @@ str_lpad:
                 }
             }
 
-          while (size)
-            {
-              stream_putc(*pnt++, stream);
-              if (width != 0)
-                {
-                  width -= 1;
-                }
-
-              size -= 1;
-            }
+          stream_puts(pnt, size, stream);
+          width = width >= size ? width - size : 0;
+          size = 0;
 
           goto tail;
         }
@@ -1164,9 +1149,11 @@ str_lpad:
 
                           if (c == 'S')
                             {
-                              sprintf_internal(stream, "+%#tx/%#zx",
-                                               addr - symbol->sym_value,
-                                               symbolsize);
+                              total_len +=
+                              lib_sprintf_internal(stream,
+                                                   "+%#tx/%#zx",
+                                                   addr - symbol->sym_value,
+                                                   symbolsize);
                             }
 
                           continue;
@@ -1377,4 +1364,43 @@ int lib_vsprintf(FAR struct lib_outstream_s *stream,
 #else
   return vsprintf_internal(stream, NULL, 0, fmt, ap);
 #endif
+}
+
+/****************************************************************************
+ * Name: lib_sprintf_internal
+ *
+ * Description:
+ *   This function does not take numbered arguments in printf.
+ *   Equivalent to lib_sprintf when CONFIG_LIBC_NUMBERED_ARGS is not enabled
+ *
+ ****************************************************************************/
+
+int lib_sprintf_internal(FAR struct lib_outstream_s *stream,
+                         FAR const IPTR char *fmt, ...)
+{
+  va_list ap;
+  int     n;
+
+  /* Then let vsprintf_internal do the real work */
+
+  va_start(ap, fmt);
+  n = vsprintf_internal(stream, NULL, 0, fmt, ap);
+  va_end(ap);
+
+  return n;
+}
+
+/****************************************************************************
+ * Name: lib_vsprintf_internal
+ *
+ * Description:
+ *   This function does not take numbered arguments in printf.
+ *   Equivalent to lib_sprintf when CONFIG_LIBC_NUMBERED_ARGS is not enabled
+ *
+ ****************************************************************************/
+
+int lib_vsprintf_internal(FAR struct lib_outstream_s *stream,
+                          FAR const IPTR char *fmt, va_list ap)
+{
+  return vsprintf_internal(stream, NULL, 0, fmt, ap);
 }

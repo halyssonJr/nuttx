@@ -96,12 +96,14 @@ static int local_waitlisten(FAR struct local_conn_s *server)
  ****************************************************************************/
 
 int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
-                 FAR socklen_t *addrlen, FAR struct socket *newsock)
+                 FAR socklen_t *addrlen, FAR struct socket *newsock,
+                 int flags)
 {
   FAR struct local_conn_s *server;
   FAR struct local_conn_s *client;
   FAR struct local_conn_s *conn;
   FAR dq_entry_t *waiter;
+  bool nonblock = !!(flags & SOCK_NONBLOCK);
   int ret;
 
   /* Some sanity checks */
@@ -120,11 +122,10 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
    * address
    */
 
-  server = (FAR struct local_conn_s *)psock->s_conn;
+  server = psock->s_conn;
 
   if (server->lc_proto != SOCK_STREAM ||
-      server->lc_state != LOCAL_STATE_LISTENING ||
-      server->lc_type  != LOCAL_TYPE_PATHNAME)
+      server->lc_state != LOCAL_STATE_LISTENING)
     {
       return -EOPNOTSUPP;
     }
@@ -168,10 +169,8 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
               conn->lc_type   = LOCAL_TYPE_PATHNAME;
               conn->lc_state  = LOCAL_STATE_CONNECTED;
               conn->lc_psock  = psock;
-#ifdef CONFIG_NET_LOCAL_SCM
               conn->lc_peer   = client;
               client->lc_peer = conn;
-#endif /* CONFIG_NET_LOCAL_SCM */
 
               strlcpy(conn->lc_path, client->lc_path, sizeof(conn->lc_path));
               conn->lc_instance_id = client->lc_instance_id;
@@ -180,7 +179,7 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
                * block.
                */
 
-              ret = local_open_server_tx(conn, false);
+              ret = local_open_server_tx(conn, nonblock);
               if (ret < 0)
                 {
                   nerr("ERROR: Failed to open write-only FIFOs for %s: %d\n",
@@ -199,7 +198,7 @@ int local_accept(FAR struct socket *psock, FAR struct sockaddr *addr,
                * for writing.
                */
 
-              ret = local_open_server_rx(conn, false);
+              ret = local_open_server_rx(conn, nonblock);
               if (ret < 0)
                 {
                    nerr("ERROR: Failed to open read-only FIFOs for %s: %d\n",

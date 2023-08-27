@@ -206,7 +206,7 @@ void up_timer_set_lowerhalf(FAR struct timer_lowerhalf_s *lower)
   g_timer.lower = lower;
 
 #ifdef CONFIG_SCHED_TICKLESS
-  g_oneshot_maxticks = TIMER_TICK_MAXTIMEOUT(lower);
+  TIMER_TICK_MAXTIMEOUT(lower, &g_oneshot_maxticks);
   TIMER_TICK_SETTIMEOUT(g_timer.lower, g_oneshot_maxticks);
 #else
   TIMER_TICK_SETTIMEOUT(g_timer.lower, 1);
@@ -252,7 +252,9 @@ void up_timer_set_lowerhalf(FAR struct timer_lowerhalf_s *lower)
 #ifdef CONFIG_CLOCK_TIMEKEEPING
 void weak_function up_timer_getmask(FAR clock_t *mask)
 {
-  uint32_t maxticks = TIMER_TICK_MAXTIMEOUT(g_timer.lower);
+  uint32_t maxticks;
+
+  TIMER_TICK_MAXTIMEOUT(g_timer.lower, &maxticks);
 
   *mask = 0;
   while (1)
@@ -393,9 +395,15 @@ int weak_function up_timer_tick_start(clock_t ticks)
  *   units.
  ****************************************************************************/
 
-uint32_t weak_function up_perf_gettime(void)
+#ifndef CONFIG_ARCH_PERF_EVENTS
+void up_perf_init(FAR void *arg)
 {
-  uint32_t ret = 0;
+  UNUSED(arg);
+}
+
+unsigned long up_perf_gettime(void)
+{
+  unsigned long ret = 0;
 
   if (g_timer.lower != NULL)
     {
@@ -405,15 +413,17 @@ uint32_t weak_function up_perf_gettime(void)
   return ret;
 }
 
-uint32_t weak_function up_perf_getfreq(void)
+unsigned long up_perf_getfreq(void)
 {
   return USEC_PER_SEC;
 }
 
-void weak_function up_perf_convert(uint32_t elapsed, FAR struct timespec *ts)
+void up_perf_convert(unsigned long elapsed,
+                     FAR struct timespec *ts)
 {
   timespec_from_usec(ts, elapsed);
 }
+#endif /* CONFIG_ARCH_PERF_EVENTS */
 
 /****************************************************************************
  * Name: up_mdelay

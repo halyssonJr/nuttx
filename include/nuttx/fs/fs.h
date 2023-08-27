@@ -74,7 +74,7 @@
 #  define _NX_READ(f,b,s)      nx_read(f,b,s)
 #  define _NX_WRITE(f,b,s)     nx_write(f,b,s)
 #  define _NX_SEEK(f,o,w)      nx_seek(f,o,w)
-#  define _NX_STAT(p,s)        nx_stat(p,s,1)
+#  define _NX_STAT(f,s)        nx_fstat(f,s)
 #  define _NX_GETERRNO(r)      (-(r))
 #  define _NX_SETERRNO(r)      set_errno(-(r))
 #  define _NX_GETERRVAL(r)     (r)
@@ -84,7 +84,7 @@
 #  define _NX_READ(f,b,s)      read(f,b,s)
 #  define _NX_WRITE(f,b,s)     write(f,b,s)
 #  define _NX_SEEK(f,o,w)      lseek(f,o,w)
-#  define _NX_STAT(p,s)        stat(p,s)
+#  define _NX_STAT(f,s)        fstat(f,s)
 #  define _NX_GETERRNO(r)      errno
 #  define _NX_SETERRNO(r)      ((void)(r))
 #  define _NX_GETERRVAL(r)     (-errno)
@@ -114,6 +114,7 @@
 #define   FSNODEFLAG_TYPE_MTD       0x00000007 /*   Named MTD driver       */
 #define   FSNODEFLAG_TYPE_SOFTLINK  0x00000008 /*   Soft link              */
 #define   FSNODEFLAG_TYPE_SOCKET    0x00000009 /*   Socket                 */
+#define   FSNODEFLAG_TYPE_PIPE      0x0000000a /*   Pipe                   */
 #define FSNODEFLAG_DELETED          0x00000010 /* Unlinked                 */
 
 #define INODE_IS_TYPE(i,t) \
@@ -129,6 +130,7 @@
 #define INODE_IS_MTD(i)       INODE_IS_TYPE(i,FSNODEFLAG_TYPE_MTD)
 #define INODE_IS_SOFTLINK(i)  INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOFTLINK)
 #define INODE_IS_SOCKET(i)    INODE_IS_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
+#define INODE_IS_PIPE(i)      INODE_IS_TYPE(i,FSNODEFLAG_TYPE_PIPE)
 
 #define INODE_GET_TYPE(i)     ((i)->i_flags & FSNODEFLAG_TYPE_MASK)
 #define INODE_SET_TYPE(i,t) \
@@ -147,6 +149,7 @@
 #define INODE_SET_MTD(i)      INODE_SET_TYPE(i,FSNODEFLAG_TYPE_MTD)
 #define INODE_SET_SOFTLINK(i) INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOFTLINK)
 #define INODE_SET_SOCKET(i)   INODE_SET_TYPE(i,FSNODEFLAG_TYPE_SOCKET)
+#define INODE_SET_PIPE(i)     INODE_SET_TYPE(i,FSNODEFLAG_TYPE_PIPE)
 
 /* The status change flags.
  * These should be or-ed together to figure out what want to change.
@@ -170,6 +173,7 @@ struct stat;
 struct statfs;
 struct pollfd;
 struct mtd_dev_s;
+struct tcb_s;
 
 /* The internal representation of type DIR is just a container for an inode
  * reference, and the path of directory.
@@ -404,6 +408,9 @@ struct inode
   uint16_t          i_flags;    /* Flags for inode */
   union inode_ops_u u;          /* Inode operations */
   ino_t             i_ino;      /* Inode serial number */
+#ifdef CONFIG_PSEUDOFS_FILE
+  size_t            i_size;     /* The size of per inode driver */
+#endif
 #ifdef CONFIG_PSEUDOFS_ATTRIBUTES
   mode_t            i_mode;     /* Access mode flags */
   uid_t             i_owner;    /* Owner */
@@ -429,6 +436,9 @@ struct file
   off_t             f_pos;      /* File position */
   FAR struct inode *f_inode;    /* Driver or file system interface */
   FAR void         *f_priv;     /* Per file driver private data */
+#ifdef CONFIG_FDSAN
+  uint64_t          f_tag;      /* file owner tag, init to 0 */
+#endif
 };
 
 /* This defines a two layer array of files indexed by the file descriptor.
@@ -711,6 +721,47 @@ int register_mtdpartition(FAR const char *partition,
 int unregister_mtddriver(FAR const char *path);
 #endif
 
+#ifdef CONFIG_PIPES
+
+/****************************************************************************
+ * Name: register_pipedriver
+ *
+ * Description:
+ *   Register a pipe driver inode the pseudo file system.
+ *
+ * Input Parameters:
+ *   path - The path to the inode to create
+ *   fops - The file operations structure
+ *   mode - inmode privileges
+ *   priv - Private, user data that will be associated with the inode.
+ *
+ * Returned Value:
+ *   Zero on success (with the inode point in 'inode'); A negated errno
+ *   value is returned on a failure (all error values returned by
+ *   inode_reserve):
+ *
+ *   EINVAL - 'path' is invalid for this operation
+ *   EEXIST - An inode already exists at 'path'
+ *   ENOMEM - Failed to allocate in-memory resources for the operation
+ *
+ ****************************************************************************/
+
+int register_pipedriver(FAR const char *path,
+                        FAR const struct file_operations *fops,
+                        mode_t mode, FAR void *priv);
+
+/****************************************************************************
+ * Name: unregister_pipedriver
+ *
+ * Description:
+ *   Remove the pipe driver inode at 'path' from the pseudo-file system
+ *
+ ****************************************************************************/
+
+int unregister_pipedriver(FAR const char *path);
+
+#endif /* CONFIG_PIPES */
+
 /****************************************************************************
  * Name: nx_mount
  *
@@ -786,6 +837,23 @@ void files_releaselist(FAR struct filelist *list);
 int files_duplist(FAR struct filelist *plist, FAR struct filelist *clist);
 
 /****************************************************************************
+ * Name: file_allocate_from_tcb
+ *
+ * Description:
+ *   Allocate a struct files instance and associate it with an inode
+ *   instance.
+ *
+ * Returned Value:
+ *     Returns the file descriptor == index into the files array on success;
+ *     a negated errno value is returned on any failure.
+ *
+ ****************************************************************************/
+
+int file_allocate_from_tcb(FAR struct tcb_s *tcb, FAR struct inode *inode,
+                           int oflags, off_t pos, FAR void *priv, int minfd,
+                           bool addref);
+
+/****************************************************************************
  * Name: file_allocate
  *
  * Description:
@@ -835,6 +903,27 @@ int file_dup(FAR struct file *filep, int minfd, bool cloexec);
 int file_dup2(FAR struct file *filep1, FAR struct file *filep2);
 
 /****************************************************************************
+ * Name: nx_dup2_from_tcb
+ *
+ * Description:
+ *   nx_dup2_from_tcb() is similar to the standard 'dup2' interface
+ *   except that is not a cancellation point and it does not modify the
+ *   errno variable.
+ *
+ *   nx_dup2_from_tcb() is an internal NuttX interface and should not be
+ *   called from applications.
+ *
+ *   Clone a file descriptor to a specific descriptor number.
+ *
+ * Returned Value:
+ *   fd2 is returned on success; a negated errno value is return on
+ *   any failure.
+ *
+ ****************************************************************************/
+
+int nx_dup2_from_tcb(FAR struct tcb_s *tcb, int fd1, int fd2);
+
+/****************************************************************************
  * Name: nx_dup2
  *
  * Description:
@@ -874,6 +963,32 @@ int nx_dup2(int fd1, int fd2);
  ****************************************************************************/
 
 int file_open(FAR struct file *filep, FAR const char *path, int oflags, ...);
+
+/****************************************************************************
+ * Name: nx_open_from_tcb
+ *
+ * Description:
+ *   nx_open_from_tcb() is similar to the standard 'open' interface except
+ *   that it is not a cancellation point and it does not modify the errno
+ *   variable.
+ *
+ *   nx_open_from_tcb() is an internal NuttX interface and should not be
+ *   called from applications.
+ *
+ * Input Parameters:
+ *   tcb    - Address of the task's TCB
+ *   path   - The full path to the file to be opened.
+ *   oflags - open flags.
+ *   ...    - Variable number of arguments, may include 'mode_t mode'
+ *
+ * Returned Value:
+ *   The new file descriptor is returned on success; a negated errno value is
+ *   returned on any failure.
+ *
+ ****************************************************************************/
+
+int nx_open_from_tcb(FAR struct tcb_s *tcb,
+                     FAR const char *path, int oflags, ...);
 
 /****************************************************************************
  * Name: nx_open
@@ -930,6 +1045,31 @@ int fs_getfilep(int fd, FAR struct file **filep);
  ****************************************************************************/
 
 int file_close(FAR struct file *filep);
+
+/****************************************************************************
+ * Name: nx_close_from_tcb
+ *
+ * Description:
+ *   nx_close_from_tcb() is similar to the standard 'close' interface
+ *   except that is not a cancellation point and it does not modify the
+ *   errno variable.
+ *
+ *   nx_close_from_tcb() is an internal NuttX interface and should not
+ *   be called from applications.
+ *
+ *   Close an inode (if open)
+ *
+ * Returned Value:
+ *   Zero (OK) is returned on success; A negated errno value is returned on
+ *   on any failure.
+ *
+ * Assumptions:
+ *   Caller holds the list mutex because the file descriptor will be
+ *   freed.
+ *
+ ****************************************************************************/
+
+int nx_close_from_tcb(FAR struct tcb_s *tcb, int fd);
 
 /****************************************************************************
  * Name: nx_close
@@ -1043,7 +1183,6 @@ int close_mtddriver(FAR struct inode *pinode);
  ****************************************************************************/
 
 #ifdef CONFIG_FILE_STREAM
-struct tcb_s; /* Forward reference */
 int fs_fdopen(int fd, int oflags, FAR struct tcb_s *tcb,
               FAR struct file_struct **filep);
 #endif
@@ -1365,6 +1504,23 @@ int file_poll(FAR struct file *filep, FAR struct pollfd *fds, bool setup);
  ****************************************************************************/
 
 int file_fstat(FAR struct file *filep, FAR struct stat *buf);
+
+/****************************************************************************
+ * Name: nx_fstat
+ *
+ * Description:
+ *   nx_fstat() is similar to the standard 'fstat' interface except that is
+ *   not a cancellation point and it does not modify the errno variable.
+ *
+ *   nx_fstat() is an internal NuttX interface and should not be called from
+ *   applications.
+ *
+ * Returned Value:
+ *   Zero is returned on success; a negated value is returned on any failure.
+ *
+ ****************************************************************************/
+
+int nx_fstat(int fd, FAR struct stat *buf);
 
 /****************************************************************************
  * Name: nx_stat

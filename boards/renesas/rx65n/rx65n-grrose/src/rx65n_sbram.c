@@ -334,7 +334,7 @@ int rx65n_sbram_int(void)
 #if defined(CONFIG_RX65N_SAVE_CRASHDUMP)
 void board_crashdump(uintptr_t sp, struct tcb_s *tcb,
                      const char *filename, int lineno,
-                     const char *msg)
+                     const char *msg, void *regs)
 {
   struct fullcontext *pdump;
   pdump = (struct fullcontext *)&g_sdata;
@@ -467,14 +467,14 @@ void board_crashdump(uintptr_t sp, struct tcb_s *tcb,
 
       while (*dead)
         {
-          up_lowputc(*dead++);
+          renesas_lowputc(*dead++);
         }
     }
   else if (rv == -ENOSPC)
     {
       /* hard fault again */
 
-      up_lowputc('!');
+      renesas_lowputc('!');
     }
 }
 #endif /* CONFIG_RX65N_SAVE_CRASHDUMP */

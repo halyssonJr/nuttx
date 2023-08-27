@@ -43,6 +43,8 @@ static void rttstream_putc(FAR struct lib_outstream_s *this, int ch)
 {
   FAR struct lib_rttoutstream_s *stream =
                                  (FAR struct lib_rttoutstream_s *)this;
+
+  SEGGER_RTT_BLOCK_IF_FIFO_FULL(0);
   stream->public.nput += SEGGER_RTT_PutChar(stream->channel, ch);
 }
 
@@ -55,7 +57,10 @@ static int rttstream_puts(FAR struct lib_outstream_s *this,
 {
   FAR struct lib_rttoutstream_s *stream =
                                 (FAR struct lib_rttoutstream_s *)this;
-  int ret = SEGGER_RTT_Write(stream->channel, buf, len);
+  int ret;
+
+  SEGGER_RTT_BLOCK_IF_FIFO_FULL(0);
+  ret = SEGGER_RTT_Write(stream->channel, buf, len);
   stream->public.nput += ret;
   return ret;
 }
@@ -121,7 +126,7 @@ void lib_rttoutstream_open(FAR struct lib_rttoutstream_s *stream,
       bufsize = bufsize ? bufsize : BUFFER_SIZE_UP;
       stream->buffer = (FAR char *)kmm_malloc(bufsize);
       DEBUGASSERT(stream->buffer);
-      sprintf(stream->name, "rtt%d", channel);
+      snprintf(stream->name, sizeof(stream->name), "rtt%d", channel);
       SEGGER_RTT_ConfigUpBuffer(channel, stream->name, stream->buffer,
                                 bufsize, SEGGER_RTT_MODE_DEFAULT);
     }
@@ -169,7 +174,7 @@ void lib_rttinstream_open(FAR struct lib_rttinstream_s *stream,
       bufsize = bufsize ? bufsize : BUFFER_SIZE_DOWN;
       stream->buffer = (FAR char *)kmm_malloc(bufsize);
       DEBUGASSERT(stream->buffer);
-      sprintf(stream->name, "rtt%d", channel);
+      snprintf(stream->name, sizeof(stream->name), "rtt%d", channel);
       SEGGER_RTT_ConfigDownBuffer(channel, stream->name, stream->buffer,
                                   bufsize, SEGGER_RTT_MODE_DEFAULT);
     }
