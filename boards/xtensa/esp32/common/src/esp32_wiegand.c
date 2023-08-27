@@ -35,6 +35,11 @@
 #include "esp32_gpio.h"
 #include "hardware/esp32_gpio_sigmap.h"
 
+#ifndef CONFIG_ESP32_GPIO_IRQ
+#error "This drive needs to enable config of CONFIG_ESP32_GPIO_IRQ," \
+       " please enable it"
+#endif
+
 #define GPIO_DATA_0 22
 #define GPIO_DATA_1 23
 #define GPIO_DATA_NUM 2
@@ -80,18 +85,18 @@ static void wiegand_irq_enable(struct wiegand_config_s *dev, bool enable)
 
   irq[0] = ESP32_PIN2IRQ(gpio_data[0]);
   irq[1] = ESP32_PIN2IRQ(gpio_data[1]);
-  
+
   if( priv->isr != NULL)
   {  
     if(enable)
     {
-      //syslog(LOG_DEBUG, "DEBUG: enable interrupt falling edge");
-      esp32_gpioirqenable(irq[1], FALLING);
+      syslog(LOG_DEBUG, "DEBUG: enable interrupt falling edge");
+      esp32_gpioirqenable(irq[0], FALLING);
       esp32_gpioirqenable(irq[1], FALLING);
     }
     else
     {
-     // syslog(LOG_DEBUG, "DEBUG: disable ");
+      syslog(LOG_DEBUG, "DEBUG: disable ");
       esp32_gpioirqdisable(irq[0]);
       esp32_gpioirqdisable(irq[1]);
     }
@@ -103,28 +108,27 @@ static int wiegand_irq_attach(struct wiegand_config_s *dev, xcpt_t isr,
 {
   struct esp32_wiegand_config_s *priv =
                 (struct esp32_wiegand_config_s *)dev;
-  
+
   int ret;
   int irq[2];
-  
-  
+
   irq[0] = ESP32_PIN2IRQ(gpio_data[0]);
   irq[1] = ESP32_PIN2IRQ(gpio_data[1]);
-  
+
   if(isr != NULL)
   {
     esp32_gpioirqdisable(irq[0]);
     esp32_gpioirqdisable(irq[1]);
-    
+
     ret = irq_attach(irq[0],isr,arg);
     if (ret < 0)
     {
       //syslog(LOG_ERR, "ERROR: irq_attach() gpio DATA 1 failed: %d\n", ret);
       return ret;
     }
-    
+
     ret = irq_attach(irq[1],isr,arg);
-    if (ret < 0)
+    if (ret < 0) 
     {
       //syslog(LOG_ERR, "ERROR: irq_attach() gpio DATA 1 failed: %d\n", ret);
       return ret;

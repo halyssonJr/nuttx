@@ -22,6 +22,34 @@
 #define __INCLUDE_NUTTX_WIEGAND_WIEGAND_H
 
 #include <nuttx/irq.h>
+struct wiegand_gpio_s
+{
+    uint32_t gpio;
+    uint32_t id;
+};
+
+enum wiegand_status_e
+{
+  /* Parity sent was wrong. */
+
+  WIEGAND_PARITY_ERROR = -2,
+
+  /* The data read was uncompleted. */
+
+  WIEGAND_READ_UNCOMPLETED = -1,
+
+  /* The data read successfully. */
+
+  WIEGAND_SUCCESS = 0
+};
+
+struct wiegand_data_s 
+{
+    uint32_t id;
+    int aba_code;
+    uint32_t facility_code;
+    enum wiegand_status_e status;
+};
 
 struct wiegand_config_s
 {
@@ -29,8 +57,27 @@ struct wiegand_config_s
                             FAR void *arg);
     CODE void (*irq_enable)(FAR struct wiegand_config_s *dev,bool enable);
     CODE bool (*get_data)(FAR const struct wiegand_config_s *dev,int index);
-    
+    struct wiegand_gpio_s g_data[2];
 };
+
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: wiegand_register
+ *
+ * Description:
+ *   Register the wiegand character device as 'devpath'
+ *
+ * Input Parameters:
+ *   devpath - The full path to the driver to register. E.g., "/dev/wiega0"
+ *   config  - The wiegand config.
+ *
+ * Returned Value:
+ *   Zero (OK) on success; a negated errno value on failure.
+ *
+ ****************************************************************************/
 
 int wiegand_register(FAR const char  *devpath, FAR struct wiegand_config_s *config);
 #endif /* __INCLUDE_NUTTX_WIEGAND_WIEGAND_H */
