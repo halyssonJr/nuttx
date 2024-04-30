@@ -129,6 +129,17 @@
 
 #define STM32F401RCRS485_QETIMER 3
 
+#ifdef CONFIG_ADC_HX711
+
+#define HX711_CLK_PIN (GPIO_OUTPUT|GPIO_PUSHPULL|GPIO_OUTPUT_SET|\
+                       GPIO_SPEED_2MHz|GPIO_PULLUP|\
+                       GPIO_PORTA|GPIO_PIN9)
+
+#define HX711_DATA_PIN (GPIO_INPUT|GPIO_PULLUP|GPIO_EXTI|\
+                        GPIO_SPEED_2MHz|GPIO_PORTB|GPIO_PIN4)
+
+#endif
+
 /****************************************************************************
  * Public Data
  ****************************************************************************/
@@ -258,6 +269,18 @@ int stm32_at24_init(char *path);
 
 #ifdef CONFIG_ADC
 int stm32_adc_setup(void);
+#endif
+
+/****************************************************************************
+ * Name: stm32_hx711_initialize
+ *
+ * Description:
+ *   Initialize hx711 chip
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_ADC_HX711
+int stm32_hx711_initialize(void);
 #endif
 
 #endif /* __BOARDS_ARM_STM32_STM32F401RC_RS485_SRC_STM32F401RC_RS485_H */
